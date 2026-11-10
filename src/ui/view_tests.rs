@@ -179,3 +179,54 @@ fn loose_files_section_only_for_files_outside_roots() {
     rt.frame(1.0 / 60.0);
     assert!(rt.find("side-loose").is_none());
 }
+
+#[test]
+fn tab_context_menu_close_others() {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    s.open_paths(&[fixture("hello.md")], 0.0);
+    s.open_paths(&[fixture("frontmatter.md")], 0.0);
+    let first = s.tabs.iter().next().map(|t| t.id).unwrap_or_default();
+    let mut rt = runtime(s);
+    rt.frame(1.0 / 60.0);
+    let (x, y) = rt.find(&format!("t-{first}")).expect("first tab");
+    rt.secondary_down(x, y);
+    rt.secondary_up(x, y);
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert_eq!(rt.state.menu, Some(MenuKind::TabContext { id: first }));
+    press(&mut rt, "tabmenu-others");
+    let left: Vec<u64> = rt.state.tabs.iter().map(|t| t.id).collect();
+    assert_eq!(left, vec![first]);
+    assert_eq!(rt.state.menu, None);
+}
+
+#[test]
+fn more_menu_copy_source_copies_markdown() {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let id = s.tabs.active().map(|t| t.id).unwrap_or_default();
+    let src = "# Title\n\nBody *text*.\n";
+    s.loaded(id, DocState::Ready { src: src.into(), large: false, lossy: false });
+    let mut rt = runtime(s);
+    let clipboard = rune::clipboard::memory();
+    rt.use_clipboard(&clipboard);
+    press(&mut rt, "tb-more");
+    press(&mut rt, "menu-copy-source");
+    assert_eq!(clipboard.text().as_deref().map(String::as_str), Some(src));
+    assert_eq!(rt.state.menu, None);
+}
+
+#[test]
+fn try_again_requeues_load() {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let id = s.tabs.active().map(|t| t.id).unwrap_or_default();
+    s.loaded(id, DocState::Error(LoadError::Binary));
+    s.jobs.clear();
+    let mut rt = runtime(s);
+    press(&mut rt, "doc-retry");
+    assert!(rt.state.jobs.iter().any(|j| matches!(j, crate::app::Job::Load { tab, .. } if *tab == id)));
+    assert!(matches!(rt.state.tabs.active().map(|t| &t.doc), Some(DocState::Loading)));
+}

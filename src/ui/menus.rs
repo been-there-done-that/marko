@@ -2,11 +2,12 @@
 
 use std::path::Path;
 
-use rune::{Color, El, FileDialogOptions, Icon, Tx, el, icon};
-use rune_kit::{Kit, Menu, MenuItem};
+use rune::{Color, El, FileDialogOptions, Icon, PointerPress, Tx, el, icon};
+use rune_kit::{Kit, Menu, MenuItem, context_menu};
 
 use crate::app::{AppState, Appearance, MenuKind};
 use crate::icons;
+use crate::load::DocState;
 use crate::theme;
 use crate::ui::titlebar::chord;
 
@@ -126,6 +127,118 @@ pub(super) fn copy_path(s: &mut AppState, tx: &mut Tx) {
     }
 }
 
+/// The label for showing a file's folder in the system's file manager.
+pub fn reveal_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Show in Finder"
+    } else if cfg!(target_os = "windows") {
+        "Show in Explorer"
+    } else {
+        "Show in Files"
+    }
+}
+
+/// Opens the folder that holds `path` in the file manager. Rune's `open_url` refuses `file:`
+/// links, so the platform's opener runs on the folder directly, on a thread of its own so the
+/// handler returns at once.
+pub(super) fn reveal_in_folder(path: &std::path::Path) {
+    let Some(dir) = path.parent().map(std::path::Path::to_path_buf) else { return };
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new(opener).arg(dir).status();
+    });
+}
+
+/// Reloads the active tab from disk. Shared by the More menu and ⌘R.
+pub(super) fn reload(s: &mut AppState) {
+    s.menu = None;
+    s.requeue_active_load();
+}
+
+/// Copies the active tab's Markdown source, as read from disk. Shared by the More menu.
+pub(super) fn copy_source(s: &mut AppState, tx: &mut Tx) {
+    s.menu = None;
+    if let Some(DocState::Ready { src, .. }) = s.tabs.active().map(|tab| &tab.doc) {
+        tx.copy(src.to_string());
+    }
+}
+
+fn tab_path(s: &AppState, id: u64) -> Option<String> {
+    s.tabs.iter().find(|t| t.id == id).map(|t| t.path.display().to_string())
+}
+
+/// The right-click menu of tab `id`, open at `point`. Its entry is pushed into `layers`.
+pub fn tab_menu(s: &AppState, k: &Kit, id: u64, point: PointerPress, layers: &mut Vec<El>) {
+    let t = theme::tokens(k.dark);
+    let path = tab_path(s, id);
+    let has_others = s.tabs.iter().count() > 1;
+    let menu = context_menu("menu-tab", el(), Some(point))
+        .min_width(MENU_MIN_W)
+        .on_close(|s: &mut AppState| {
+            s.menu = None;
+            s.tab_menu_at = None;
+        })
+        .item(
+            MenuItem::new("Close")
+                .lead(lead("tabmenu-close", Some(&icons::X), t.fg2))
+                .on_select(move |s: &mut AppState| {
+                    s.menu = None;
+                    s.tabs.close(id);
+                    s.sync_find();
+                }),
+        )
+        .item(
+            MenuItem::new("Close Others")
+                .lead(lead("tabmenu-others", None, t.fg2))
+                .disabled(!has_others)
+                .on_select(move |s: &mut AppState| {
+                    s.menu = None;
+                    s.tabs.close_others(id);
+                    s.sync_find();
+                }),
+        )
+        .item(
+            MenuItem::new("Close to the Right")
+                .lead(lead("tabmenu-right", None, t.fg2))
+                .on_select(move |s: &mut AppState| {
+                    s.menu = None;
+                    s.tabs.close_to_right(id);
+                    s.sync_find();
+                }),
+        )
+        .separator()
+        .item(
+            MenuItem::new("Copy Path")
+                .lead(lead("tabmenu-copy", Some(&icons::COPY), t.fg2))
+                .disabled(path.is_none())
+                .on_select_tx(move |s: &mut AppState, tx: &mut Tx| {
+                    s.menu = None;
+                    if let Some(path) = tab_path(s, id) {
+                        tx.copy(path);
+                    }
+                }),
+        )
+        .item(
+            MenuItem::new(reveal_label())
+                .lead(lead("tabmenu-reveal", Some(&icons::FOLDER_OPEN), t.fg2))
+                .disabled(path.is_none())
+                .on_select_tx(move |s: &mut AppState, _: &mut Tx| {
+                    s.menu = None;
+                    if let Some(tab) = s.tabs.iter().find(|t| t.id == id) {
+                        reveal_in_folder(&tab.path);
+                    }
+                }),
+        );
+    // The trigger is a placeholder: the menu opens at `point`, and nothing in the strip needs it back.
+    menu.build(k, layers);
+}
+
 /// Closes the active tab. Shared by the More menu and ⌘W.
 pub(super) fn close_tab(s: &mut AppState) {
     s.menu = None;
@@ -145,17 +258,42 @@ fn appearance_item(s: &AppState, label: &'static str, want: Appearance) -> MenuI
 pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El {
     let t = theme::tokens(k.dark);
     let has_tab = s.tabs.active().is_some();
+    let has_source = matches!(s.tabs.active().map(|tab| &tab.doc), Some(DocState::Ready { .. }));
     Menu::new("menu-more")
         .trigger(trigger)
         .open(s.menu == Some(MenuKind::More))
         .min_width(MENU_MIN_W)
         .on_close(|s: &mut AppState| s.menu = None)
         .item(
+            MenuItem::new("Reload from Disk")
+                .lead(lead("menu-reload", None, t.fg2))
+                .shortcut(chord(false, "R"))
+                .disabled(!has_tab)
+                .on_select(reload),
+        )
+        .item(
+            MenuItem::new(reveal_label())
+                .lead(lead("menu-reveal", Some(&icons::FOLDER_OPEN), t.fg2))
+                .disabled(!has_tab)
+                .on_select_tx(|s: &mut AppState, _: &mut Tx| {
+                    s.menu = None;
+                    if let Some(path) = s.tabs.active().map(|tab| tab.path.clone()) {
+                        reveal_in_folder(&path);
+                    }
+                }),
+        )
+        .item(
             MenuItem::new("Copy Path")
                 .lead(lead("menu-copy-path", Some(&icons::COPY), t.fg2))
                 .shortcut(chord(true, "C"))
                 .disabled(!has_tab)
                 .on_select_tx(copy_path),
+        )
+        .item(
+            MenuItem::new("Copy Markdown Source")
+                .lead(lead("menu-copy-source", Some(&icons::FILE_TEXT), t.fg2))
+                .disabled(!has_source)
+                .on_select_tx(copy_source),
         )
         .separator()
         .item(

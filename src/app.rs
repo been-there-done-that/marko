@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use rune::PointerPress;
 use rune_kit::shell::TabDragState;
 
 use crate::find::Find;
@@ -39,6 +40,8 @@ pub enum Appearance {
 pub enum MenuKind {
     Open,
     More,
+    /// The right-click menu of tab `id`, open at `AppState::tab_menu_at`.
+    TabContext { id: u64 },
 }
 
 pub struct Toast {
@@ -62,6 +65,8 @@ pub struct AppState {
     pub appearance: Appearance,
     pub drop_hover: bool,
     pub menu: Option<MenuKind>,
+    /// Where the tab context menu's secondary press landed, in window points.
+    pub tab_menu_at: Option<PointerPress>,
     pub toast: Option<Toast>,
     pub jobs: Vec<Job>,
     pub drag: TabDragState,
@@ -89,6 +94,7 @@ impl AppState {
             appearance: Appearance::System,
             drop_hover: false,
             menu: None,
+            tab_menu_at: None,
             toast: None,
             jobs: Vec::new(),
             drag: TabDragState::default(),
@@ -212,6 +218,17 @@ impl AppState {
                 r.scanning = false;
                 r.error = Some(e);
             }
+        }
+    }
+
+    /// Queues a fresh load for the active tab and shows it as loading again. Try Again and
+    /// Reload from Disk both use it.
+    pub fn requeue_active_load(&mut self) {
+        let Some(tab) = self.tabs.active_mut() else { return };
+        tab.doc = DocState::Loading;
+        let job = Job::Load { tab: tab.id, path: tab.path.clone() };
+        if !self.jobs.contains(&job) {
+            self.jobs.push(job);
         }
     }
 

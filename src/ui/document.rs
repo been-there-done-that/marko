@@ -136,4 +136,13 @@ fn error(path: &Path, e: &LoadError, k: &Kit, t: &Tokens) -> El {
         .child(icon(&icons::FILE, 32.0).color(t.fg3))
         .child(text(format!("Can't open {}", name.display())).font(title).color(t.fg))
         .child(text(e.message()).font(k.ty.small).color(t.fg3).wrap())
+        .child(retry_button(k))
+}
+
+/// Queues the active tab's load again (§4.12).
+fn retry_button(k: &Kit) -> El {
+    Button::new("Try Again")
+        .on_press(|s: &mut AppState| s.requeue_active_load())
+        .build(k)
+        .key("doc-retry")
 }

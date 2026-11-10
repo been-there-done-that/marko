@@ -1,7 +1,7 @@
 //! The titlebar (§4.2): sidebar toggle and Open on the left, the tab strip, Preview | Edit,
 //! Find and More on the right.
 
-use rune::{ChromeInsets, El, el, icon, row, text};
+use rune::{ChromeInsets, El, PointerPress, Tx, el, icon, row, text};
 use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabReorder, TabStrip, WindowTitlebar};
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
@@ -73,7 +73,13 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
     // background tab's dot clears when it is activated; a dirty tab keeps its dot until saved.
     let items = s.tabs.iter().zip(s.tabs.titles()).map(|(tab, title)| {
         let unread = (tab.changed && Some(tab.id) != active_id) || editor::dirty(tab);
-        TabItem::new(tab.id.to_string(), title).icon(&icons::FILE_TEXT).status(unread.then_some(TabItemStatus::Unread))
+        let (id, path) = (tab.id, tab.path.display().to_string());
+        TabItem::new(tab.id.to_string(), title).icon(&icons::FILE_TEXT).status(unread.then_some(TabItemStatus::Unread)).decorate(move |slot, _| {
+            slot.help(path).on_secondary_press(move |s: &mut AppState, p: PointerPress, _: &mut Tx| {
+                s.tab_menu_at = Some(p);
+                s.menu = Some(MenuKind::TabContext { id });
+            })
+        })
     });
     let strip = TabStrip::new("tabs", TabOrientation::Horizontal)
         .tabs(items)
@@ -98,6 +104,9 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
             }
         })
         .build_layered(k, layers);
+    if let (Some(MenuKind::TabContext { id }), Some(point)) = (s.menu, s.tab_menu_at) {
+        menus::tab_menu(s, k, id, point, layers);
+    }
 
     let find = ghost_button("Find", format!("Find {}", chord(false, "F")), &icons::SEARCH)
         .on_press_tx(|s: &mut AppState, tx: &mut rune::Tx| crate::find::toggle(s, tx))
