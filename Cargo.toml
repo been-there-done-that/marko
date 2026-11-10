@@ -13,6 +13,7 @@ ignore = "0.4"
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 pulldown-cmark = { version = "0.13", default-features = false }
+ureq = { version = "2", default-features = false, features = ["tls"] }
 libc = "0.2"
 procwatch = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
 

@@ -69,17 +69,18 @@ Read this with the Phase 1a notes above. Where a 1a line says Edit mode is inert
 
 ### TODO(upstream)
 
-- `src/ui/document.rs`: remote images show their alt text, not the "Remote image · Load" placeholder. The Markdown image hook can only return an image or `None`.
+- `src/ui/document.rs`: a web image that is not loaded shows its alt text, not a "Remote image · Load" placeholder (the Markdown image hook can only return an image or `None`); a banner above the document carries the Load button instead.
 - `src/theme.rs`, `markdown_style`: the §4.7 values `MarkdownStyle` cannot express yet (lead paragraph, vertical rhythm, heading rule, H6 colour, table header size and padding, inline-code radius and padding, code-block radius). The full list is under Phase 1a.
 
 ## Phase 1c (live reload, conflicts, save)
 
 ### Deviations
 
-- **Remote images show alt text.** No HTTP client is in the app; see the TODO(upstream) above.
-- **No SVG decode.** The image crate has no `svg` feature, so SVG images show their alt text.
-- **Image cache is not invalidated when an image file changes.** Its byte bound also excludes mip levels, so the real footprint is somewhat larger than the bound.
-- **Edit-preview images only load after a reload.**
+- **Web images load only on request.** `net::fetch` (ureq, 15 s, 20 MB, http/https) runs when Web images is Always or the reader pressed Load on the document banner (per tab). Until then, and when a fetch fails, the image shows its alt text.
+- **SVG is drawn through Rune's rasteriser at the drawing's own size** (up to 1920 px wide). Text inside an SVG does not render (no fonts are given to the rasteriser).
+- **A changed image file is decoded again** (cached local images are watched); the old picture stays until the new one lands. The cache's byte bound excludes mip levels, so the real footprint is somewhat larger than the bound.
+- **Edit-preview images load as the text changes** (local always; web only when allowed).
+- **Pressing an image opens it full size** over a dark scrim (click or Esc closes). It is fitted inside a 40 pt margin, not exactly 90% of the window.
 - **Scroll sync is one way**: editor to preview. It is untested in a real window.
 - **No PollWatcher fallback.** If the native watcher cannot start on a platform, live reload does nothing.
 - **Watcher start errors are silent.** `Watcher::start` failures are dropped in `main.rs`.

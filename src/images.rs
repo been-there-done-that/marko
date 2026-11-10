@@ -20,14 +20,18 @@ pub const CACHE_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_DECODE_WIDTH: u32 = 2 * READ_W_WIDE as u32;
 /// Largest allocation the decoder may make for one picture.
 const MAX_DECODE_ALLOC: u64 = 256 * 1024 * 1024;
+/// Largest SVG file read (a vector drawing has no business being larger).
+const MAX_SVG_BYTES: u64 = 20 * 1024 * 1024;
+/// Side, in points, an SVG with no readable size is drawn at.
+const SVG_DEFAULT_PT: f32 = 640.0;
 
 /// Where an image's `src` points.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resolved {
     /// A file on disk, absolute.
     Local(PathBuf),
-    /// An `http:` or `https:` address. Never fetched without a click, and there is no HTTP client yet.
-    // TODO(upstream): fetch on "Load" once an HTTP client is in the app; until then the placeholder stays.
+    /// An `http:` or `https:` address. Fetched only when the Web images setting is Always or the
+    /// reader pressed Load for the document (`AppState::want_web`).
     Remote(String),
     /// Empty, a fragment, or another scheme (`data:`, `file:`).
     Unsupported,
@@ -96,6 +100,20 @@ pub fn image_srcs(src_md: &str) -> Vec<String> {
             _ => None,
         })
         .collect()
+}
+
+/// Sorts image sources into the local files (resolved against the document at `doc`) and the web
+/// addresses they name; anything else is dropped.
+pub fn split_srcs(doc: &Path, srcs: &[String]) -> (Vec<PathBuf>, Vec<String>) {
+    let (mut local, mut web) = (Vec::new(), Vec::new());
+    for src in srcs {
+        match resolve(doc, src) {
+            Resolved::Local(p) => local.push(p),
+            Resolved::Remote(url) => web.push(url),
+            Resolved::Unsupported => {}
+        }
+    }
+    (local, web)
 }
 
 /// The picture cache: decoded images by absolute path, bounded by entries and by decoded bytes,
@@ -167,9 +185,19 @@ impl ImageCache {
         }
     }
 
+    /// The local files whose pictures are cached, for the watcher to follow.
+    pub fn local_paths(&self) -> Vec<PathBuf> {
+        self.entries.keys().filter(|p| p.is_absolute()).cloned().collect()
+    }
+
     /// True when `p` was asked for and has no picture yet, or failed.
     pub fn pending(&self, p: &Path) -> bool {
         self.pending.contains(p)
+    }
+
+    /// Forgets that `p` was asked for, so a failed refresh of a picture we still hold can be retried.
+    pub fn clear_pending(&mut self, p: &Path) {
+        self.pending.remove(p);
     }
 
     pub fn mark_pending(&mut self, p: PathBuf) {
@@ -195,20 +223,54 @@ fn shared_cache() -> &'static rune::ImageCache {
     CACHE.get_or_init(|| rune::ImageCache::new(Arc::new(|| {})))
 }
 
+/// The cache key a fetched web image is stored under. Not an absolute path, so it never meets a local file.
+pub fn web_key(url: &str) -> PathBuf {
+    PathBuf::from(format!("web:{}", url.trim()))
+}
+
 /// Decodes the image file at `path` on the calling (worker) thread, scaled down to at most
-/// `max_w` pixels wide. Returns the picture and its decoded size in bytes, or `None` when the
-/// file can't be read, isn't an image, or is too big to keep.
+/// `max_w` pixels wide. SVG files (`.svg`, `.svgz`) are drawn at their own size. Returns the
+/// picture and its decoded size in bytes, or `None` when the file can't be read, isn't an
+/// image, or is too big to keep.
 pub fn decode(path: &Path, max_w: u32) -> Option<(rune::Image, usize)> {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
+    if matches!(ext.as_deref(), Some("svg" | "svgz")) {
+        let meta = std::fs::metadata(path).ok()?;
+        if meta.len() > MAX_SVG_BYTES {
+            return None;
+        }
+        return decode_svg(std::fs::read(path).ok()?);
+    }
     let path = path.to_path_buf();
-    // A codec can panic on a malformed file; that fails this one image, not the worker.
-    let rgba = catch_unwind(AssertUnwindSafe(move || -> Option<image::RgbaImage> {
+    decode_with(move || {
         let mut reader = image::ImageReader::open(&path).ok()?.with_guessed_format().ok()?;
-        let mut limits = image::Limits::default();
-        limits.max_alloc = Some(MAX_DECODE_ALLOC);
-        reader.limits(limits);
-        Some(reader.decode().ok()?.into_rgba8())
-    }))
-    .ok()??;
+        limit(&mut reader);
+        reader.decode().ok()
+    }, max_w)
+}
+
+/// Decodes an image held in memory (a fetched web image), as `decode` does a file.
+pub fn decode_bytes(bytes: &[u8], max_w: u32) -> Option<(rune::Image, usize)> {
+    if looks_like_svg(bytes) {
+        return decode_svg(bytes.to_vec());
+    }
+    let bytes = bytes.to_vec();
+    decode_with(move || {
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
+        limit(&mut reader);
+        reader.decode().ok()
+    }, max_w)
+}
+
+fn limit<R: std::io::BufRead + std::io::Seek>(reader: &mut image::ImageReader<R>) {
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    reader.limits(limits);
+}
+
+fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::UnwindSafe, max_w: u32) -> Option<(rune::Image, usize)> {
+    // A codec can panic on a malformed file; that fails this one image, not the worker.
+    let rgba = catch_unwind(move || read().map(image::DynamicImage::into_rgba8)).ok()??;
     let rgba = if rgba.width() > max_w {
         let h = (u64::from(rgba.height()) * u64::from(max_w) / u64::from(rgba.width())).max(1) as u32;
         image::imageops::resize(&rgba, max_w, h, image::imageops::FilterType::Triangle)
@@ -223,6 +285,66 @@ pub fn decode(path: &Path, max_w: u32) -> Option<(rune::Image, usize)> {
     let img = shared_cache().rgba(w, h, rgba.into_raw());
     img.wait().ok()?;
     Some((img, bytes))
+}
+
+/// Rasterises SVG (or gzipped SVG) bytes at the drawing's own size, no wider than the wide
+/// reading column.
+fn decode_svg(bytes: Vec<u8>) -> Option<(rune::Image, usize)> {
+    let side = svg_size(&bytes).map_or(SVG_DEFAULT_PT, |(w, h)| w.max(h)).clamp(1.0, MAX_DECODE_WIDTH as f32);
+    let img = catch_unwind(AssertUnwindSafe(|| shared_cache().svg(bytes, side, 1.0))).ok()?;
+    let [w, h] = img.wait().ok()?;
+    let bytes = w as usize * h as usize * 4;
+    (bytes <= CACHE_BYTES).then_some((img, bytes))
+}
+
+/// Bytes that are SVG text, or gzip (SVGZ); a raster format never starts either way.
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return true;
+    }
+    let head = &bytes[..bytes.len().min(2048)];
+    let text = String::from_utf8_lossy(head);
+    text.trim_start().starts_with('<') && text.contains("<svg")
+}
+
+/// The drawing's own size in points, from the root tag's `width` and `height`, or its `viewBox`.
+/// None for gzip, percentages, or a tag without sizes.
+fn svg_size(bytes: &[u8]) -> Option<(f32, f32)> {
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(4096)]);
+    let start = head.find("<svg")?;
+    let tag = &head[start..start + head[start..].find('>')?];
+    let attr = |name: &str| -> Option<String> {
+        let mut from = 0;
+        while let Some(i) = tag[from..].find(name) {
+            let at = from + i;
+            from = at + name.len();
+            let before_ok = tag[..at].ends_with(char::is_whitespace);
+            let rest = tag[from..].trim_start();
+            if before_ok && let Some(rest) = rest.strip_prefix('=') {
+                let rest = rest.trim_start();
+                let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+                return rest[1..].split(quote).next().map(str::to_string);
+            }
+        }
+        None
+    };
+    let number = |v: &str| -> Option<f32> {
+        let v = v.trim();
+        if v.ends_with('%') {
+            return None;
+        }
+        let digits = v.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+        digits.parse::<f32>().ok().filter(|n| n.is_finite() && *n > 0.0)
+    };
+    if let (Some(w), Some(h)) = (attr("width").as_deref().and_then(number), attr("height").as_deref().and_then(number)) {
+        return Some((w, h));
+    }
+    let vb = attr("viewBox")?;
+    let parts: Vec<f32> = vb.split([' ', ',']).filter(|p| !p.is_empty()).filter_map(|p| p.parse().ok()).collect();
+    match parts[..] {
+        [_, _, w, h] if w > 0.0 && h > 0.0 => Some((w, h)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

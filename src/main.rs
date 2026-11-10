@@ -8,6 +8,7 @@ mod gpu_env;
 mod icons;
 mod images;
 mod load;
+mod net;
 mod open;
 mod paths;
 mod progress;
@@ -102,6 +103,21 @@ fn scene_basic(s: &mut AppState) {
     settle(s);
 }
 
+/// `images.md` with its pictures decoded: an SVG, a PNG and a web image waiting for Load.
+fn scene_images(s: &mut AppState) {
+    s.open_paths(&[fixtures().join("images.md")], 0.0);
+    settle(s);
+}
+
+/// The gradient picture open full size.
+fn scene_lightbox(s: &mut AppState) {
+    scene_images(s);
+    let path = fixtures().join("gradient.png");
+    if let Some((image, _)) = images::decode(&path, images::MAX_DECODE_WIDTH) {
+        s.lightbox = Some(app::Lightbox { image, alt: "A colour gradient".into() });
+    }
+}
+
 /// The active tab's edit buffer, created on first use. Scenes type into it directly.
 fn active_buffer(s: &mut AppState) -> Option<&mut edit::EditBuffer> {
     s.tabs.active_mut()?.edit.as_mut()
@@ -162,6 +178,8 @@ static SCENES: &[Scene] = &[
     ("deleted", scene_deleted),
     ("conflict", scene_conflict),
     ("code", scene_basic),
+    ("images-svg", scene_images),
+    ("lightbox", scene_lightbox),
     ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
@@ -241,11 +259,14 @@ fn start(handle: AppHandle<AppState>) {
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
     s.sync_preview_scroll(tx);
+    s.sync_edit_images();
     ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
     let progress_changed = s.sync_doc_scroll();
     if let Some(watcher) = WATCHER.get() {
-        let files: Vec<PathBuf> = s.tabs.iter().filter(|t| !t.untitled).map(|t| t.path.clone()).collect();
+        let mut files: Vec<PathBuf> = s.tabs.iter().filter(|t| !t.untitled).map(|t| t.path.clone()).collect();
+        // Cached pictures are followed too, so an edited image file is decoded again.
+        files.extend(s.images.local_paths());
         let roots: Vec<PathBuf> = s.sidebar.roots.iter().map(|r| r.path.clone()).collect();
         watcher.lock().unwrap_or_else(|e| e.into_inner()).sync(&files, &roots);
     }

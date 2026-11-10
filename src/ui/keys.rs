@@ -91,6 +91,9 @@ fn save_active(s: &mut AppState, tx: &mut Tx, save_as: bool) -> bool {
 
 fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if matches!(ev.key, Key::Escape) {
+        if s.lightbox.take().is_some() {
+            return true;
+        }
         if s.menu.take().is_some() {
             return true;
         }
