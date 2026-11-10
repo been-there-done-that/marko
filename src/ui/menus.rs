@@ -13,10 +13,6 @@ use crate::ui::titlebar::chord;
 /// Recent entries shown in the Open menu. The state keeps more.
 const RECENT_SHOWN: usize = 8;
 const MENU_MIN_W: f32 = 240.0;
-/// Zoom steps and limits. Zoom multiplies the reading sizes (§4.7).
-const ZOOM_STEP: f32 = 0.1;
-const ZOOM_MIN: f32 = 0.5;
-const ZOOM_MAX: f32 = 2.0;
 /// Extensions the Open File dialog offers (§4.4).
 const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "txt"];
 
@@ -30,12 +26,8 @@ fn lead(key: impl Into<String>, i: Option<&'static Icon>, color: Color) -> El {
     }
 }
 
-fn zoom_by(zoom: f32, delta: f32) -> f32 {
-    (zoom + delta).clamp(ZOOM_MIN, ZOOM_MAX)
-}
-
-fn open_file(s: &mut AppState, tx: &mut Tx) {
-    s.menu = None;
+/// The Open File dialog, shared by the Open menu and ⌘O.
+pub fn open_file_dialog(tx: &mut Tx) {
     let options = FileDialogOptions { title: "Open Markdown".into(), ..Default::default() }.filter("Markdown", MARKDOWN_EXTS);
     tx.open_file(options, |s: &mut AppState, r, _: &mut Tx| {
         let now = s.now;
@@ -43,13 +35,23 @@ fn open_file(s: &mut AppState, tx: &mut Tx) {
     });
 }
 
-fn open_folder(s: &mut AppState, tx: &mut Tx) {
-    s.menu = None;
+/// The Open Folder dialog, shared by the Open menu and ⇧⌘O.
+pub fn open_folder_dialog(tx: &mut Tx) {
     let options = FileDialogOptions { title: "Open Folder".into(), ..Default::default() };
     tx.open_folder(options, |s: &mut AppState, r, _: &mut Tx| {
         let now = s.now;
         s.dialog_answer(r, now);
     });
+}
+
+fn open_file(s: &mut AppState, tx: &mut Tx) {
+    s.menu = None;
+    open_file_dialog(tx);
+}
+
+fn open_folder(s: &mut AppState, tx: &mut Tx) {
+    s.menu = None;
+    open_folder_dialog(tx);
 }
 
 /// Opens a Recent entry. One that no longer exists is dropped from the list instead.
@@ -116,14 +118,16 @@ pub fn open_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
     menu.build(k, layers)
 }
 
-fn copy_path(s: &mut AppState, tx: &mut Tx) {
+/// Copies the active tab's path. Shared by the More menu and ⇧⌘C.
+pub(super) fn copy_path(s: &mut AppState, tx: &mut Tx) {
     s.menu = None;
     if let Some(tab) = s.tabs.active() {
         tx.copy(tab.path.display().to_string());
     }
 }
 
-fn close_tab(s: &mut AppState) {
+/// Closes the active tab. Shared by the More menu and ⌘W.
+pub(super) fn close_tab(s: &mut AppState) {
     s.menu = None;
     if let Some(id) = s.tabs.active().map(|tab| tab.id) {
         s.tabs.close(id);
@@ -159,7 +163,7 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
                 .lead(lead("menu-zoom-in", Some(&icons::ZOOM_IN), t.fg2))
                 .shortcut(chord(false, "+"))
                 .on_select(|s: &mut AppState| {
-                    s.zoom = zoom_by(s.zoom, ZOOM_STEP);
+                    s.zoom_in();
                     s.menu = None;
                 }),
         )
@@ -168,7 +172,7 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
                 .lead(lead("menu-zoom-out", Some(&icons::ZOOM_OUT), t.fg2))
                 .shortcut(chord(false, "−"))
                 .on_select(|s: &mut AppState| {
-                    s.zoom = zoom_by(s.zoom, -ZOOM_STEP);
+                    s.zoom_out();
                     s.menu = None;
                 }),
         )
@@ -177,7 +181,7 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
                 .lead(lead("menu-zoom-reset", None, t.fg2))
                 .shortcut(chord(false, "0"))
                 .on_select(|s: &mut AppState| {
-                    s.zoom = 1.0;
+                    s.zoom_reset();
                     s.menu = None;
                 }),
         )

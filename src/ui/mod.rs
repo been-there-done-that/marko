@@ -1,5 +1,6 @@
 //! The root view: the titlebar, a divider and the body, with the menus layered over them.
 
+pub mod keys;
 mod menus;
 mod titlebar;
 

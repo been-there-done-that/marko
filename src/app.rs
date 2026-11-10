@@ -13,6 +13,10 @@ use crate::tabs::TabSet;
 const RECENT_CAP: usize = 16;
 /// How long a toast stays on screen, in seconds.
 const TOAST_SECS: f64 = 2.4;
+/// Zoom step and limits. Zoom multiplies the reading sizes (§4.7).
+const ZOOM_STEP: f32 = 0.1;
+const ZOOM_MIN: f32 = 0.6;
+const ZOOM_MAX: f32 = 2.0;
 
 /// How a document is shown. Edit arrives in phase 2.
 pub enum Mode {
@@ -128,6 +132,25 @@ impl AppState {
             }
             _ => false,
         }
+    }
+
+    /// One zoom step in. Zoom stays within 60% to 200%, on a 0.1 grid.
+    pub fn zoom_in(&mut self) {
+        self.set_zoom(self.zoom + ZOOM_STEP);
+    }
+
+    /// One zoom step out, within the same limits as `zoom_in`.
+    pub fn zoom_out(&mut self) {
+        self.set_zoom(self.zoom - ZOOM_STEP);
+    }
+
+    /// Back to 100%.
+    pub fn zoom_reset(&mut self) {
+        self.zoom = 1.0;
+    }
+
+    fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = (zoom.clamp(ZOOM_MIN, ZOOM_MAX) * 10.0).round() / 10.0;
     }
 
     /// Moves a file to the front of Recent, without duplicates, keeping at most 16.
