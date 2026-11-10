@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use rune::FileDialogResult;
+
 use crate::app::{AppState, Job};
 use crate::paths::is_markdown;
 use crate::sidebar::AddRoot;
@@ -50,6 +52,16 @@ impl AppState {
                 format!("Skipped {} files that aren't Markdown", c.rejected)
             };
             self.show_toast(text, now);
+        }
+    }
+
+    /// Routes the answer from the Open File or Open Folder dialog. A cancelled dialog does
+    /// nothing; a dialog that failed to open says so in a toast.
+    pub fn dialog_answer(&mut self, r: FileDialogResult, now: f64) {
+        match r {
+            Ok(Some(path)) => self.open_paths(&[path], now),
+            Ok(None) => {}
+            Err(_) => self.show_toast("Couldn't open the file dialog", now),
         }
     }
 
