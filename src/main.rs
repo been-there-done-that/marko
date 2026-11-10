@@ -2,8 +2,10 @@
 
 #![allow(dead_code)]
 
+mod app;
 mod icons;
 mod load;
+mod open;
 mod paths;
 mod sidebar;
 mod tabs;
