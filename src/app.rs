@@ -18,9 +18,12 @@ const ZOOM_STEP: f32 = 0.1;
 const ZOOM_MIN: f32 = 0.6;
 const ZOOM_MAX: f32 = 2.0;
 
-/// How a document is shown. Edit arrives in phase 2.
+/// How a document is shown: the rendered preview, or the editor beside a live preview.
 pub enum Mode {
     Preview,
+    /// Shown by the Edit view (Task 6).
+    #[allow(dead_code)] // Nothing switches to Edit yet.
+    Edit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

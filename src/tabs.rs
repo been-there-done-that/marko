@@ -2,6 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
+use crate::edit::EditBuffer;
 use crate::load::DocState;
 use crate::paths::{canonical, display_titles};
 
@@ -14,6 +17,12 @@ pub struct Tab {
     pub doc: DocState,
     #[allow(dead_code)] // Per-tab scroll memory is not restored yet (NOTES-1a).
     pub scroll: f32,
+    /// Edit mode's buffer, set once the tab is first edited (Task 6 reads it).
+    #[allow(dead_code)] // Read by Edit mode (Task 6).
+    pub edit: Option<EditBuffer>,
+    /// A New tab that has never been saved; its path does not exist on disk yet.
+    #[allow(dead_code)] // Read by Save and the unsaved-changes guard (Task 7).
+    pub untitled: bool,
 }
 
 pub struct TabSet {
@@ -37,12 +46,26 @@ impl TabSet {
             self.active = Some(i);
             return (self.tabs[i].id, false);
         }
+        (self.insert_tab(key, DocState::Loading, None, false), true)
+    }
+
+    /// Opens an empty, unsaved tab named `name` in the current directory and activates it.
+    /// Its edit buffer starts empty, so it is not dirty until something is typed.
+    #[allow(dead_code)] // The New command (Task 6/7) calls this.
+    pub fn open_untitled(&mut self, name: &str) -> u64 {
+        let dir = std::env::current_dir().unwrap_or_default();
+        let doc = DocState::Ready { src: Arc::from(""), large: false, lossy: false };
+        self.insert_tab(dir.join(name), doc, Some(EditBuffer::from_src("")), true)
+    }
+
+    /// Inserts a tab after the active one (or at the end) and activates it.
+    fn insert_tab(&mut self, path: PathBuf, doc: DocState, edit: Option<EditBuffer>, untitled: bool) -> u64 {
         let at = self.active.map_or(self.tabs.len(), |a| a + 1);
         let id = self.next_id;
         self.next_id += 1;
-        self.tabs.insert(at, Tab { id, path: key, doc: DocState::Loading, scroll: 0.0 });
+        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, edit, untitled });
         self.active = Some(at);
-        (id, true)
+        id
     }
 
     /// Closes a tab. The right neighbour becomes active, or the left one when the

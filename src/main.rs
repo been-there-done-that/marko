@@ -1,6 +1,7 @@
 //! Rune Markdown: a light Markdown viewer.
 
 mod app;
+mod edit;
 mod icons;
 mod load;
 mod open;
