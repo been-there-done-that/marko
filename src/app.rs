@@ -99,6 +99,8 @@ pub struct AppState {
     pub stats_on: bool,
     /// The numbers the readout shows, sampled by `stats::tick`.
     pub stats: crate::stats::Stats,
+    /// The readout's text, bound live so a new number repaints without rebuilding the view.
+    pub stats_text: rune::LiveText,
     /// The last reading, which the next CPU percentage is taken from.
     pub stats_last: Option<crate::stats::Sample>,
     /// Reading progress for the active document: its line and pill, and which viewport was restored.
@@ -136,6 +138,7 @@ impl AppState {
             scroll_synced: None,
             stats_on: true,
             stats: crate::stats::Stats::default(),
+            stats_text: rune::LiveText::new(""),
             stats_last: None,
             doc_scroll: Progress::new(),
         }

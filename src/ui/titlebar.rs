@@ -57,7 +57,7 @@ fn mode(s: &AppState, k: &Kit, t: &Tokens) -> El {
 /// This process's memory and CPU as plain numbers, in small text left of the mode switch.
 fn readout(s: &AppState, k: &Kit, t: &Tokens) -> El {
     let font = TextStyle { size: 12.0, features: "'tnum' 1", ..k.ty.small };
-    text(stats::text(s.stats)).key("stats").font(font).color(t.fg3)
+    text(stats::text(s.stats)).key("stats").font(font).color(t.fg3).live_text(&s.stats_text)
 }
 
 /// The narrowest a tab may be made to fit its name, and the widest.

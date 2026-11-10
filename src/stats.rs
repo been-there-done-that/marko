@@ -64,12 +64,19 @@ pub fn tick(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
         s.stats_last = None;
         return false;
     }
-    let reading = read_self();
-    let changed = apply(s, now, reading);
+    let due = s.stats_last.is_none_or(|prev| now - prev.at >= EVERY - 0.02);
+    let first = s.stats_last.is_none();
+    let changed = due && apply(s, now, read_self());
+    if changed {
+        // The number goes into a live text, so the window repaints that text without rebuilding
+        // the view: a rebuild of a large document costs CPU the next sample would then report.
+        s.stats_text.set(text(s.stats));
+    }
     if let Some(prev) = s.stats_last {
         tx.wake_after(Duration::from_secs_f64((prev.at + EVERY - now).max(0.0)));
     }
-    changed
+    // Only the first reading changes the view's shape (the readout appears).
+    first && changed
 }
 
 /// `(resident bytes, CPU seconds)` for this process. On Linux it reads `/proc/self`, since the
