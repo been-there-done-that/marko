@@ -1,14 +1,15 @@
 //! The Edit view (§4.8): the Markdown source in a text area on the left, and the rendered
 //! document beside it, updated as the source changes.
 
-use rune::{El, ScrollPos, ScrollSpec, TextEdit, col, el, row, text};
-use rune_kit::{Button, Kit, TextArea};
+use rune::{El, ScrollPos, ScrollSpec, TextEdit, TextStyle, col, el, row, text, text_input};
+use rune_kit::{Button, Kit};
 
 use crate::app::{AppState, Mode};
 use crate::edit::EditBuffer;
 use crate::load::DocState;
+use crate::settings::Settings;
 use crate::tabs::Tab;
-use crate::theme::Look;
+use crate::theme::{self, Look};
 use crate::ui::document;
 
 /// Padding around the source text area.
@@ -97,6 +98,13 @@ pub fn toggle(s: &mut AppState) -> bool {
     enter(s)
 }
 
+/// The editing field's type: the code font at 13 points, scaled by zoom and the reader's text
+/// size (16 is the default), with a 1.6 line height.
+pub fn editor_style(look: &'static Look, settings: &Settings, zoom: f32) -> TextStyle {
+    let size = 13.0 * zoom * settings.text_size / 16.0;
+    TextStyle { size, line_height: size * 1.6, ..theme::code_font(&look.kit, settings) }
+}
+
 /// The split view for the active tab: the source on the left, its live preview on the right.
 pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
     let t = &look.tokens;
@@ -110,12 +118,17 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
         }
     };
     let at = s.editor_at.clone();
-    let source_area = TextArea::new(edit)
+    // rune-kit's `TextArea` draws in the UI font, so the field is built directly to use the code font.
+    let ink = k.c.text_base;
+    let source_area = text_input(edit, editor_style(look, &s.settings, s.zoom))
+        .key("editor")
+        .w_full()
+        .color(ink)
+        .caret(ink, k.selection())
         .label("Markdown source")
-        .width(None)
+        .description("")
         .on_edit(edit_text)
-        .build(k)
-        .key("editor");
+        .animate_edit_layout();
     let left = col().key("editor-pane").w_full().grow(1.0).min_h(0.0).px(PANE_PAD).py(PANE_PAD)
         .scroll(ScrollSpec { stick_bottom: false })
         .on_scroll_offset(move |p: ScrollPos| {

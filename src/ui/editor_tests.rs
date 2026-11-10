@@ -125,3 +125,31 @@ fn conflict_banner_reload_discards() {
     assert!(tab.edit.is_none(), "the edits are discarded");
     assert!(rt.state.jobs.iter().any(|j| matches!(j, crate::app::Job::Load { .. })), "the file is loaded again");
 }
+
+#[test]
+fn editor_style_follows_the_code_font() {
+    use crate::settings::Settings;
+    let settings = Settings { code_font: "DejaVu Sans Mono".into(), ligatures: true, text_size: 16.0, ..Settings::default() };
+    let look = crate::theme::look(&settings, &[], false);
+    let style = editor::editor_style(look, &settings, 1.0);
+    assert!(matches!(style.family, rune::Family::Named("DejaVu Sans Mono")));
+    assert!(style.features.contains("'liga' 1"));
+    assert_eq!(style.size, 13.0);
+    assert!((style.line_height - 13.0 * 1.6).abs() < 0.01);
+    let bigger = Settings { text_size: 20.0, ..settings.clone() };
+    let zoomed = editor::editor_style(look, &bigger, 1.5);
+    assert!((zoomed.size - 13.0 * 1.5 * 20.0 / 16.0).abs() < 0.01);
+    let default = editor::editor_style(look, &Settings::default(), 1.0);
+    assert!(!matches!(default.family, rune::Family::Named(_)));
+}
+
+#[test]
+fn editor_field_still_edits_with_a_named_code_font() {
+    let mut s = ready_state();
+    s.settings.code_font = "DejaVu Sans Mono".into();
+    let mut rt = runtime(s);
+    press(&mut rt, "mode-edit");
+    rt.key(KeyEvent { key: Key::Text("q".into()), mods: Mods::default() });
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.tabs.active().and_then(|t| t.edit.as_ref()).is_some_and(|b| b.text().contains('q')));
+}

@@ -105,3 +105,7 @@ Read this with the Phase 1a notes above. Where a 1a line says Edit mode is inert
 - Typing feel in the editor.
 - Scroll sync between editor and preview.
 - Live reload in a real editor.
+
+## Installed fonts (phase 3)
+
+`fonts::load` asks fontconfig (`fc-list`) on Linux. Other systems return empty lists with `loaded: true`, so the pickers offer only the defaults there.

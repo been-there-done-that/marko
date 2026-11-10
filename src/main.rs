@@ -118,6 +118,13 @@ fn scene_dirty_editor(s: &mut AppState) {
     }
 }
 
+/// The editor drawing in an installed monospaced family with ligatures on.
+fn scene_editor_font(s: &mut AppState) {
+    s.settings.code_font = "DejaVu Sans Mono".into();
+    s.settings.ligatures = true;
+    scene_dirty_editor(s);
+}
+
 fn scene_find(s: &mut AppState) {
     scene_basic(s);
     s.open_find();
@@ -158,6 +165,7 @@ static SCENES: &[Scene] = &[
     ("drop", |s: &mut AppState| s.drop_hover = true),
     ("find", scene_find),
     ("editor", scene_dirty_editor),
+    ("editor-font", scene_editor_font),
     ("guard", scene_guard),
     ("deleted", scene_deleted),
     ("conflict", scene_conflict),
@@ -215,6 +223,11 @@ fn start(handle: AppHandle<AppState>) {
             }
         });
     }
+    let fonts_handle = handle.clone();
+    let _ = thread::Builder::new().name("fonts".into()).spawn(move || {
+        let list = fonts::load();
+        fonts_handle.update(move |s, _| s.fonts = list);
+    });
     let saved = session::load(&prefs);
     let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
     let (saves, queued) = mpsc::channel::<Session>();
