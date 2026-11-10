@@ -128,9 +128,9 @@ fn node_row(s: &AppState, k: &Kit, style: &TreeStyle, i: usize, j: usize) -> El 
     })
 }
 
-/// The sidebar column at the left of the body. It is shown beside the document, or alone when
-/// there are roots but no tab.
-pub fn view(s: &AppState, look: &'static Look) -> El {
+/// The full-height sidebar column: `header`, then the rows. It is shown beside the document, or
+/// alone when there are roots but no tab.
+pub fn view(s: &AppState, look: &'static Look, header: El) -> El {
     let k: &'static Kit = &look.kit;
     let t: &'static Tokens = &look.tokens;
     let style = Rc::new(TreeStyle::from_kit(k));
@@ -151,7 +151,10 @@ pub fn view(s: &AppState, look: &'static Look) -> El {
             Item::Node(root, j) => node_row(s, k, &style_rows, root, j),
         },
     );
-    col().key("side").w(theme::SIDE_W).h_full().min_h(0.0).fill(t.side)
-        .scroll(ScrollSpec { stick_bottom: false })
-        .child(body)
+    let rows = col().key("side").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(body);
+    // One translucent layer (`t.side`) under the header and the rows.
+    col().key("side-col").w(theme::SIDE_W).h_full().min_h(0.0).fill(t.side)
+        .child(header)
+        .child(el().key("side-header-divider").w_full().h(1.0).fill(t.line))
+        .child(rows)
 }

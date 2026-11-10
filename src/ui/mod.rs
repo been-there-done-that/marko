@@ -1,5 +1,5 @@
-//! The root view: the titlebar, a divider and the body, with the menus, toast and drop overlay
-//! layered over them.
+//! The root view: a full-height sidebar with its own header beside the toolbar and the
+//! document, with the menus, toast and drop overlay layered over them.
 
 mod document;
 pub(crate) mod editor;
@@ -31,7 +31,9 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     let k = &look.kit;
     let t = &look.tokens;
     let mut layers = Vec::new();
-    let bar = titlebar::bar(s, k, look, chrome, &mut layers);
+    let show_side = s.sidebar.visible && (!s.tabs.is_empty() || !s.sidebar.roots.is_empty());
+    let bar = titlebar::bar(s, k, look, chrome, show_side, &mut layers);
+    let header = show_side.then(|| titlebar::side_header(s, k, look, chrome, &mut layers));
     settings_view::layers(s, look, &mut layers);
     if s.toast.is_some() {
         layers.push(toast(s, k, t));
@@ -51,10 +53,26 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     if !s.has_background() {
         shell = shell.fill(k.c.page);
     }
-    let shell = shell
+    let content = col().key("content").grow(1.0).min_w(0.0).h_full()
         .child(bar)
         .child(el().key("divider").w_full().h(1.0).fill(t.line))
-        .child(body(s, look, k));
+        .child(main_view(s, look, k));
+    // With the sidebar shown it runs the window's full height beside the document column, which
+    // holds the toolbar; hidden, the toolbar spans the window.
+    let shell = match header {
+        Some(header) => shell.child(
+            row().key("body").w_full().grow(1.0).min_h(0.0)
+                .child(sidebar_view::view(s, look, header).backdrop_blur(frost(s)))
+                .child(el().w(1.0).h_full().fill(t.line))
+                .child(content),
+        ),
+        None => shell.child(content),
+    }
+    .on_drop_files(|s: &mut AppState, paths: &[PathBuf], _: &mut Tx| {
+        let now = s.now;
+        s.open_paths(paths, now);
+    })
+    .on_drop_hover(|s: &mut AppState, on: bool, _: &mut Tx| s.drop_hover = on);
     rune_kit::root(with_background(s, look, shell), layers)
 }
 
@@ -77,9 +95,8 @@ pub(crate) fn frost(s: &AppState) -> f32 {
     if s.bg.image.is_some() { s.settings.background.blur } else { 0.0 }
 }
 
-/// The sidebar (when shown) beside the document or the empty state. Dropped files land here.
-fn body(s: &AppState, look: &'static Look, k: &Kit) -> El {
-    let show_side = s.sidebar.visible && (!s.tabs.is_empty() || !s.sidebar.roots.is_empty());
+/// The document, editor or empty state, under the toolbar.
+fn main_view(s: &AppState, look: &'static Look, k: &Kit) -> El {
     let main = if s.tabs.is_empty() {
         empty::view(s, look)
     } else if editor::shows(s) {
@@ -92,22 +109,11 @@ fn body(s: &AppState, look: &'static Look, k: &Kit) -> El {
         None => main,
     };
     // Over a picture the reading surface is one translucent, optionally frosted panel.
-    let main = if s.has_background() {
+    if s.has_background() {
         col().key("main-panel").grow(1.0).min_h(0.0).fill(k.c.page).backdrop_blur(frost(s)).child(main)
     } else {
         main
-    };
-    let mut row_el = row().key("body").w_full().grow(1.0).min_h(0.0);
-    if show_side {
-        row_el = row_el.child(sidebar_view::view(s, look).backdrop_blur(frost(s))).child(el().w(1.0).h_full().fill(look.tokens.line));
     }
-    row_el
-        .child(main)
-        .on_drop_files(|s: &mut AppState, paths: &[PathBuf], _: &mut Tx| {
-            let now = s.now;
-            s.open_paths(paths, now);
-        })
-        .on_drop_hover(|s: &mut AppState, on: bool, _: &mut Tx| s.drop_hover = on)
 }
 
 /// The toast pill, top centre, 12pt under the titlebar (§4.11).

@@ -60,10 +60,8 @@ fn readout(s: &AppState, k: &Kit, t: &Tokens) -> El {
     text(stats::text(s.stats)).key("stats").font(font).color(t.fg3).live_text(&s.stats_text)
 }
 
-/// The titlebar band for this frame. Menus it opens are pushed into `layers`.
-pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, layers: &mut Vec<El>) -> El {
-    let t = &look.tokens;
-
+/// The sidebar toggle and the Open button (with its menu), shared by both layouts.
+fn side_controls(s: &AppState, k: &Kit, layers: &mut Vec<El>) -> (El, El) {
     let sidebar = ghost_button("Sidebar", format!("Toggle sidebar  {}", chord(false, "B")), &icons::PANEL_LEFT)
         .on_press(|s: &mut AppState| s.sidebar.visible = !s.sidebar.visible)
         .build(k)
@@ -72,8 +70,28 @@ pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, lay
         .on_press(|s: &mut AppState| toggle_menu(s, MenuKind::Open))
         .build(k)
         .key("tb-open");
-    let open = menus::open_menu(s, k, open_btn, layers);
+    (sidebar, menus::open_menu(s, k, open_btn, layers))
+}
 
+/// The header at the top of the full-height sidebar: the app's name at the left (clear of the
+/// macOS traffic lights, which sit at the window's top-left), Open and the sidebar toggle at the
+/// right. It is a window drag region like the toolbar beside it.
+pub fn side_header(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, layers: &mut Vec<El>) -> El {
+    let t = &look.tokens;
+    let (sidebar, open) = side_controls(s, k, layers);
+    let name = text("Marko").font(k.ty.small_medium).color(t.fg);
+    row().key("side-header").w_full().h(theme::BAR_H).pl(chrome.leading + 14.0).pr(8.0).gap(4.0).center_y()
+        .window_drag()
+        .child(row().grow(1.0).min_w(0.0).center_y().child(name))
+        .child(open)
+        .child(sidebar)
+}
+
+/// The toolbar band for this frame. Menus it opens are pushed into `layers`. With the sidebar
+/// shown (`side`) the band spans only the document column: the traffic lights are in the
+/// sidebar's header, so it reserves no leading inset and carries no sidebar controls.
+pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, side: bool, layers: &mut Vec<El>) -> El {
+    let t = &look.tokens;
     let strip = tab_strip::view(s, k, t);
     if let (Some(MenuKind::TabContext { id }), Some(point)) = (s.menu, s.tab_menu_at) {
         menus::tab_menu(s, k, id, point, layers);
@@ -89,13 +107,16 @@ pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, lay
         .key("tb-more");
     let more = menus::more_menu(s, k, more, layers);
 
-    let mut bar = WindowTitlebar::from_insets(chrome, 1.0)
-        .height(theme::BAR_H)
-        .gap(4.0)
-        .leading(sidebar)
-        .leading(open)
-        .leading(divider(t))
-        .tabs(strip);
+    let mut insets = chrome;
+    if side {
+        insets.leading = 0.0;
+    }
+    let mut bar = WindowTitlebar::from_insets(insets, 1.0).height(theme::BAR_H).gap(4.0);
+    if !side {
+        let (sidebar, open) = side_controls(s, k, layers);
+        bar = bar.leading(sidebar).leading(open).leading(divider(t));
+    }
+    let mut bar = bar.tabs(strip);
     if s.stats_on && s.stats_last.is_some() {
         bar = bar.trailing(readout(s, k, t));
     }
