@@ -26,7 +26,7 @@ fn button(key: &str, label: &str, shortcut: String, primary: bool, t: &Tokens, k
 fn recent_card(s: &AppState, k: &Kit, t: &Tokens) -> El {
     let heading = TextStyle { size: 11.0, weight: 600.0, tracking: 0.44, ..k.ty.small };
     let mut card = col().key("empty-recent").w_full().mt(32.0).padding(4.0).radius(8.0).border(1.0, t.line)
-        .child(row().h(28.0).px(8.0).center_y().child(text("RECENT").font(heading).color(t.fg3)));
+        .child(row().h(theme::ROW_H).px(8.0).center_y().child(text("RECENT").font(heading).color(t.fg3)));
     for (i, path) in s.recent.iter().take(RECENT_SHOWN).enumerate() {
         let is_dir = path.is_dir();
         let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
@@ -34,9 +34,9 @@ fn recent_card(s: &AppState, k: &Kit, t: &Tokens) -> El {
         let target = path.clone();
         let glyph = if is_dir { &icons::FOLDER } else { &icons::FILE_TEXT };
         card = card.child(
-            row().key(format!("empty-recent-{i}")).h(28.0).px(8.0).gap(8.0).center_y().radius(4.0)
+            row().key(format!("empty-recent-{i}")).h(theme::ROW_H).px(8.0).gap(8.0).center_y().radius(4.0)
                 .on_press_tx(move |s: &mut AppState, _: &mut Tx| pick_recent(s, &target))
-                .child(icon(glyph, 16.0).color(t.fg3))
+                .child(icon(glyph, theme::ICON).color(t.fg3))
                 .child(text(name).font(k.ty.small_medium).color(t.fg).wrap_anywhere())
                 .child(text(parent).font(k.ty.small).color(t.fg3)),
         );

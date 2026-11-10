@@ -1,7 +1,5 @@
 //! Rune Markdown: a light Markdown viewer.
 
-#![allow(dead_code)]
-
 mod app;
 mod icons;
 mod load;
@@ -71,7 +69,10 @@ fn scene_files(s: &mut AppState) {
     settle(s);
 }
 
-static SCENES: &'static [(&'static str, fn(&mut AppState))] = &[
+/// A named scene for `--snap`: a label and the setup that puts the app in that state.
+type Scene = (&'static str, fn(&mut AppState));
+
+static SCENES: &[Scene] = &[
     ("empty", |_: &mut AppState| {}),
     ("folder", scene_folder),
     ("files", scene_files),

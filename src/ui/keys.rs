@@ -80,12 +80,12 @@ fn reload_active(s: &mut AppState) -> bool {
 /// queued here, as `open_file` does for a new tab; a loaded one has nothing to fetch.
 fn reopen_closed(s: &mut AppState) -> bool {
     let Some(id) = s.tabs.reopen_closed() else { return false };
-    if let Some(tab) = s.tabs.get_mut(id) {
-        if matches!(tab.doc, DocState::Loading) {
-            let job = Job::Load { tab: id, path: tab.path.clone() };
-            if !s.jobs.contains(&job) {
-                s.jobs.push(job);
-            }
+    if let Some(tab) = s.tabs.get_mut(id)
+        && matches!(tab.doc, DocState::Loading)
+    {
+        let job = Job::Load { tab: id, path: tab.path.clone() };
+        if !s.jobs.contains(&job) {
+            s.jobs.push(job);
         }
     }
     true

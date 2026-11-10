@@ -68,11 +68,9 @@ impl AppState {
     /// Opens one Markdown file as a tab. Queues a load only when the tab is new.
     pub(crate) fn open_file(&mut self, path: &Path) {
         let (id, created) = self.tabs.open(path);
-        if created {
-            if let Some(tab) = self.tabs.get_mut(id) {
-                let tab_path = tab.path.clone();
-                self.jobs.push(Job::Load { tab: id, path: tab_path });
-            }
+        if created && let Some(tab) = self.tabs.get_mut(id) {
+            let tab_path = tab.path.clone();
+            self.jobs.push(Job::Load { tab: id, path: tab_path });
         }
         self.remember_recent(path);
     }

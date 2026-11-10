@@ -73,7 +73,7 @@ fn section_text(k: &Kit, t: &Tokens, label: &str) -> El {
 
 fn head(s: &AppState, k: &Kit, t: &Tokens, item: Item) -> El {
     match item {
-        Item::LooseHead => row().key("side-loose").h(28.0).px(8.0).center_y().child(section_text(k, t, "Open files")),
+        Item::LooseHead => row().key("side-loose").h(theme::ROW_H).px(8.0).center_y().child(section_text(k, t, "Open files")),
         Item::RootHead(i) => {
             let name = s.sidebar.roots[i].name.clone();
             let remove = row()
@@ -84,7 +84,7 @@ fn head(s: &AppState, k: &Kit, t: &Tokens, item: Item) -> El {
                 .radius(4.0)
                 .on_press(move |s: &mut AppState| s.sidebar.remove_root(i))
                 .child(icon(&icons::X, 12.0).color(t.fg3));
-            row().key(format!("side-root-{i}")).h(28.0).px(8.0).center_y().justify_between()
+            row().key(format!("side-root-{i}")).h(theme::ROW_H).px(8.0).center_y().justify_between()
                 .child(section_text(k, t, &name))
                 .child(remove)
         }
@@ -93,7 +93,7 @@ fn head(s: &AppState, k: &Kit, t: &Tokens, item: Item) -> El {
 }
 
 fn status(k: &Kit, t: &Tokens, i: usize, label: &str) -> El {
-    row().key(format!("side-status-{i}")).h(28.0).px(24.0).center_y()
+    row().key(format!("side-status-{i}")).h(theme::ROW_H).px(24.0).center_y()
         .child(text(label).font(k.ty.small).color(t.fg3))
 }
 

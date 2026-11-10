@@ -7,7 +7,6 @@ use rune_kit::syntax::Syntax;
 use rune_kit::{Kit, MarkdownStyle, PaletteSeed};
 
 pub const BAR_H: f32 = 40.0;
-pub const BTN: f32 = 28.0;
 pub const ICON: f32 = 16.0;
 pub const SIDE_W: f32 = 248.0;
 pub const ROW_H: f32 = 28.0;
@@ -16,6 +15,7 @@ pub const READ_W_WIDE: f32 = 960.0;
 
 /// Colours the app draws with directly, beside the kit's own tokens.
 pub struct Tokens {
+    #[allow(dead_code)] // The titlebar fill is not themed yet (NOTES-1a).
     pub bar: Color,
     pub side: Color,
     pub line: Color,
@@ -23,7 +23,9 @@ pub struct Tokens {
     pub fg: Color,
     pub fg2: Color,
     pub fg3: Color,
+    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES-1a).
     pub hover: Color,
+    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES-1a).
     pub press: Color,
     pub accent: Color,
     pub accent_soft: Color,

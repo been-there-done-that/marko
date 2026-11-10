@@ -124,7 +124,7 @@ pub fn save(prefs: &mut Prefs, session: &Session) {
 }
 
 /// Holds an exclusive lock on `instance.lock`. Only the holder saves the session.
-pub struct InstanceLock(File);
+pub struct InstanceLock(#[allow(dead_code)] File); // Never read: holding the file keeps the lock.
 
 /// Takes the lock in `dir`, creating the folder if needed. `None` when another process holds it,
 /// or when the lock file can't be opened or locked.

@@ -31,8 +31,12 @@ pub struct Sidebar {
 /// What [`Sidebar::add_root`] did with a folder.
 pub enum AddRoot {
     Added(usize),
-    AlreadyRoot(usize),
-    InsideRoot { root: usize },
+    // The root index is for reveal-on-select (phase 1b); nothing reads it yet.
+    AlreadyRoot(#[allow(dead_code)] usize),
+    InsideRoot {
+        #[allow(dead_code)]
+        root: usize,
+    },
 }
 
 impl Sidebar {

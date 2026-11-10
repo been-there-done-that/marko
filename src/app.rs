@@ -62,6 +62,8 @@ pub struct AppState {
     pub drag: TabDragState,
     /// Set by `poll` each frame; handlers have no clock of their own.
     pub now: f64,
+    /// Read by Edit mode (phase 2); the Preview | Edit control is hand-built and inert for now.
+    #[allow(dead_code)]
     pub mode: Mode,
 }
 
@@ -104,10 +106,10 @@ impl AppState {
                 r.scanning = false;
                 r.error = None;
                 r.tree = build_tree(&format!("root-{i}"), &files, &key);
-                if self.tabs.is_empty() {
-                    if let Some(rel) = readme_or_first(&files) {
-                        self.open_file(&key.join(rel));
-                    }
+                if self.tabs.is_empty()
+                    && let Some(rel) = readme_or_first(&files)
+                {
+                    self.open_file(&key.join(rel));
                 }
             }
             Err(e) => {
