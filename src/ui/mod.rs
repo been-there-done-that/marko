@@ -3,6 +3,7 @@
 
 mod document;
 mod empty;
+pub mod keys;
 mod menus;
 mod sidebar_view;
 mod titlebar;
