@@ -28,8 +28,8 @@ pub struct Tab {
     pub deleted: bool,
     /// Hash of the text in `doc`, so a reload that changed nothing stays silent.
     pub hash: Option<u64>,
-    /// Set instead of reloading when the tab has unsaved edits (Edit mode, phase 2). Unused until then.
-    #[allow(dead_code)] // Edit mode (phase 2) sets it; the banner (Task 9) reads it.
+    /// Set instead of reloading when the file changes under unsaved edits. The editor's banner
+    /// asks Reload or Keep Mine.
     pub conflict: bool,
 }
 

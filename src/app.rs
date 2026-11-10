@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rune::PointerPress;
+use rune::{Live, PointerPress, Tx};
 use rune_kit::shell::TabDragState;
 
 use crate::edit::{self, EditBuffer};
@@ -88,6 +88,13 @@ pub struct AppState {
     pub guard: Option<u64>,
     /// Tabs to close once their save succeeds (the guard's Save).
     pub close_after_save: Vec<u64>,
+    /// The editor's scroll offset and maximum (y), as its scroll viewport reports them.
+    pub editor_at: Live<[f32; 2]>,
+    /// The preview's scroll offset and maximum (y), reported the same way.
+    pub preview_at: Live<[f32; 2]>,
+    /// The editor fraction last copied to the preview. Cleared outside Edit, so re-entering it
+    /// syncs again.
+    pub scroll_synced: Option<f32>,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -116,6 +123,9 @@ impl AppState {
             mode: Mode::Preview,
             guard: None,
             close_after_save: Vec::new(),
+            editor_at: Live::new([0.0; 2]),
+            preview_at: Live::new([0.0; 2]),
+            scroll_synced: None,
         }
     }
 
@@ -189,6 +199,7 @@ impl AppState {
             Ok(()) => {
                 t.hash = Some(content_hash(&text));
                 t.deleted = false;
+                t.conflict = false;
                 if let Some(buf) = t.edit.as_mut() {
                     buf.mark_saved(&text);
                 }
@@ -236,6 +247,17 @@ impl AppState {
         let same = was_ready && t.hash == Some(hash);
         if same && !was_deleted {
             return;
+        }
+        // Unsaved edits are never replaced silently: the banner asks, and the text stays as it is.
+        if was_ready && !same && t.edit.as_ref().is_some_and(EditBuffer::dirty) {
+            t.conflict = true;
+            return;
+        }
+        // A clean buffer takes the new text, so the editor shows what the preview shows.
+        if let (Some(buf), DocState::Ready { src, .. }) = (t.edit.as_mut(), &doc)
+            && !buf.dirty()
+        {
+            *buf = EditBuffer::from_src(src);
         }
         t.doc = doc;
         t.hash = Some(hash);
@@ -291,6 +313,40 @@ impl AppState {
         if let Some((img, bytes)) = image {
             self.images.insert(key, img, bytes);
         }
+    }
+
+    /// Conflict banner, Keep Mine: the edits stay, and the next save writes them over the file.
+    pub fn keep_mine_active(&mut self) {
+        if let Some(tab) = self.tabs.active_mut() {
+            tab.conflict = false;
+        }
+    }
+
+    /// Conflict banner, Reload: the active tab's edits are dropped and its file is loaded again.
+    pub fn reload_active_discarding(&mut self) {
+        if let Some(tab) = self.tabs.active_mut() {
+            tab.edit = None;
+            tab.conflict = false;
+        }
+        self.requeue_active_load();
+    }
+
+    /// Editor to preview scroll sync, one way: when the editor's scroll moves, the preview goes to
+    /// the same fraction of its own scroll range. Called once per frame from `poll`. It only acts
+    /// when the editor's fraction changed, so the preview scrolls freely otherwise.
+    pub fn sync_preview_scroll(&mut self, tx: &mut Tx) {
+        if !matches!(self.mode, Mode::Edit) {
+            self.scroll_synced = None;
+            return;
+        }
+        let [offset, max] = self.editor_at.get();
+        let frac = if max > 0.0 { (offset / max).clamp(0.0, 1.0) } else { 0.0 };
+        if self.scroll_synced == Some(frac) {
+            return;
+        }
+        self.scroll_synced = Some(frac);
+        let [_, preview_max] = self.preview_at.get();
+        tx.scroll_to_instant("preview", 0.0, frac * preview_max);
     }
 
     /// Marks a tab's file as deleted and toasts it once. The last content stays on screen.

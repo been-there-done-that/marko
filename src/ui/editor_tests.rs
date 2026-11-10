@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use rune::{Env, Key, KeyEvent, Mods, Runtime};
 
 use crate::app::{AppState, Mode};
-use crate::load::load;
+use crate::load::{load, DocState};
 use crate::ui::editor;
 use crate::ui::keys::on_key;
 use crate::ui::view;
@@ -87,4 +87,41 @@ fn dirty_dot_shows_after_typing() {
     let active = rt.state.tabs.active().expect("active tab");
     assert!(editor::dirty(active), "dirty after typing");
     assert!(rt.find("status-mark").is_some(), "the tab shows a status mark in place of its close button");
+}
+
+/// Edits the active tab in Edit mode, then lets the disk change under it: the reload asks
+/// instead of replacing the text, and the banner shows.
+fn conflicted() -> Runtime<AppState> {
+    let mut rt = runtime(ready_state());
+    press(&mut rt, "mode-edit");
+    let id = rt.state.tabs.active().map(|t| t.id).expect("active tab");
+    if let Some(buf) = rt.state.tabs.active_mut().and_then(|t| t.edit.as_mut()) {
+        buf.text.text.push_str(" edited");
+    }
+    let changed = DocState::Ready { src: "# changed on disk".into(), large: false, lossy: false };
+    rt.update(|s, _| s.loaded(id, changed));
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("conflict-banner").is_some(), "the banner shows");
+    rt
+}
+
+#[test]
+fn conflict_banner_keep_mine() {
+    let mut rt = conflicted();
+    press(&mut rt, "conflict-keep");
+    assert!(rt.find("conflict-banner").is_none(), "the banner goes");
+    let tab = rt.state.tabs.active().expect("active tab");
+    assert!(!tab.conflict);
+    assert!(editor::dirty(tab), "the edits are kept for the next save");
+}
+
+#[test]
+fn conflict_banner_reload_discards() {
+    let mut rt = conflicted();
+    press(&mut rt, "conflict-reload");
+    assert!(rt.find("conflict-banner").is_none(), "the banner goes");
+    let tab = rt.state.tabs.active().expect("active tab");
+    assert!(!tab.conflict);
+    assert!(tab.edit.is_none(), "the edits are discarded");
+    assert!(rt.state.jobs.iter().any(|j| matches!(j, crate::app::Job::Load { .. })), "the file is loaded again");
 }
