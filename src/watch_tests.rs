@@ -37,6 +37,31 @@ fn debounce_waits_150ms() {
     assert!(events.is_empty());
 }
 
+/// Waits until the watcher thread has applied `n` requests, failing after 2 s.
+fn wait_applied(w: &Watcher, n: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while w.applied() < n {
+        assert!(std::time::Instant::now() < deadline, "the watch was not applied within 2 s");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn sync_is_applied_off_the_caller_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = canonical(dir.path());
+    let mut w = Watcher::start(|_| {}).unwrap();
+
+    // Returns without waiting for the recursive watch; the thread applies it shortly after.
+    w.sync(&[], std::slice::from_ref(&root));
+    wait_applied(&w, 1);
+
+    // The same lists again change nothing, so no request is sent.
+    w.sync(&[], std::slice::from_ref(&root));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(w.applied(), 1);
+}
+
 #[test]
 fn rename_over_is_change() {
     let dir = tempfile::tempdir().unwrap();
@@ -47,6 +72,7 @@ fn rename_over_is_change() {
     })
     .unwrap();
     w.sync(std::slice::from_ref(&file), &[]);
+    wait_applied(&w, 1);
 
     // An editor's atomic save: write a temp file, then rename it over the original.
     let tmp = file.with_file_name("a.md.tmp");

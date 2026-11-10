@@ -5,7 +5,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -27,22 +28,26 @@ pub enum FileEvent {
 
 /// Which paths the event thread passes on: open files, and sidebar roots (a root stands for
 /// a create, remove or rename anywhere under it).
-#[derive(Default, PartialEq, Eq)]
+#[derive(Default, Clone, PartialEq, Eq)]
 struct Interest {
     files: Vec<PathBuf>,
     roots: Vec<PathBuf>,
 }
 
+/// Watches the folders of open files and roots. `sync` is cheap and never touches the disk:
+/// the notify watcher lives on its own thread, which does the watching and unwatching.
 pub struct Watcher {
-    inner: RecommendedWatcher,
-    /// Folders now watched, with the mode each is watched in.
-    watched: HashMap<PathBuf, RecursiveMode>,
     /// Shared with the event thread, which reads it to filter events.
     interest: Arc<Mutex<Interest>>,
+    /// Hands each changed request to the thread that owns the notify watcher.
+    requests: Sender<Interest>,
+    /// How many requests that thread has finished applying. Read by the tests only.
+    #[cfg_attr(not(test), allow(dead_code))]
+    applied: Arc<AtomicUsize>,
 }
 
 impl Watcher {
-    /// Starts the watcher and its debounce thread. `on_event` runs on that thread.
+    /// Starts the watcher and its threads. `on_event` runs on the event thread.
     pub fn start(on_event: impl Fn(FileEvent) + Send + 'static) -> Result<Watcher, String> {
         let (raw_tx, raw_rx) = mpsc::channel::<Event>();
         let inner = notify::recommended_watcher(move |res: notify::Result<Event>| {
@@ -57,12 +62,27 @@ impl Watcher {
             .name("watch".into())
             .spawn(move || run(raw_rx, shared, on_event))
             .map_err(|e| e.to_string())?;
-        Ok(Watcher { inner, watched: HashMap::new(), interest })
+
+        let (requests, wanted) = mpsc::channel::<Interest>();
+        let applied = Arc::new(AtomicUsize::new(0));
+        let done = Arc::clone(&applied);
+        thread::Builder::new()
+            .name("watch-folders".into())
+            .spawn(move || {
+                let mut folders = Folders { inner, watched: HashMap::new() };
+                for req in wanted {
+                    folders.apply(&req.files, &req.roots);
+                    done.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(Watcher { interest, requests, applied })
     }
 
-    /// Brings the watched folders in line with the open files and roots. Each open file's parent
+    /// Asks for the watched folders to follow the open files and roots. Each open file's parent
     /// folder is watched non-recursively, so an atomic-rename save is seen; each root recursively.
-    /// Folders no longer needed are unwatched. Does nothing when the lists are unchanged.
+    /// The watches are applied on the watcher's own thread, so this returns at once. Does nothing
+    /// when the lists are unchanged.
     pub fn sync(&mut self, files: &[PathBuf], roots: &[PathBuf]) {
         {
             let mut interest = self.interest.lock().unwrap_or_else(|e| e.into_inner());
@@ -72,6 +92,29 @@ impl Watcher {
             interest.files = files.to_vec();
             interest.roots = roots.to_vec();
         }
+        let req = Interest { files: files.to_vec(), roots: roots.to_vec() };
+        // The thread only ends when the watcher is dropped, so the send can't fail while we exist.
+        let _ = self.requests.send(req);
+    }
+
+    /// How many `sync` requests the watcher thread has applied so far.
+    #[cfg(test)]
+    pub fn applied(&self) -> usize {
+        self.applied.load(Ordering::SeqCst)
+    }
+}
+
+/// The notify watcher and the folders it watches. Lives on the watcher's own thread, since adding
+/// a recursive watch walks the directory tree.
+struct Folders {
+    inner: RecommendedWatcher,
+    /// Folders now watched, with the mode each is watched in.
+    watched: HashMap<PathBuf, RecursiveMode>,
+}
+
+impl Folders {
+    /// Brings the watched folders in line with the lists. Folders no longer needed are unwatched.
+    fn apply(&mut self, files: &[PathBuf], roots: &[PathBuf]) {
         let want = wanted_dirs(files, roots);
         let stale: Vec<PathBuf> =
             self.watched.iter().filter(|(d, m)| want.get(*d) != Some(*m)).map(|(d, _)| d.clone()).collect();

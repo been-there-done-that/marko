@@ -17,15 +17,16 @@ mod watch;
 mod worker;
 
 use std::path::PathBuf;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
+use std::thread;
 use std::time::Duration;
 
 use rune::prefs::Prefs;
 use rune::{AppHandle, AppSpec, Tx};
 
 use app::{AppState, Job, MenuKind};
-use session::{InstanceLock, SaveDebounce};
+use session::{InstanceLock, SaveDebounce, Session};
 use watch::{FileEvent, Watcher};
 
 /// The app id; its prefs folder holds the session.
@@ -42,13 +43,14 @@ static PERSIST: OnceLock<Mutex<Persist>> = OnceLock::new();
 static WATCHER: OnceLock<Mutex<Watcher>> = OnceLock::new();
 
 struct Persist {
-    prefs: Prefs,
     /// Held by the one process that saves. None in the others, and in headless renders,
     /// which never reach `on_ready`.
     primary: Option<InstanceLock>,
     /// The session as last seen by `poll`, as JSON, to tell when anything changed.
     last: String,
     debounce: SaveDebounce,
+    /// Sends due snapshots to the saver thread, the only thread that writes the prefs.
+    saves: Sender<Session>,
 }
 
 /// Runs queued jobs on this thread. Scenes render without a worker, so they settle their loads here.
@@ -179,10 +181,19 @@ fn start(handle: AppHandle<AppState>) {
         let _ = WATCHER.set(Mutex::new(watcher));
     }
 
-    let prefs = Prefs::open(APP_ID);
+    let mut prefs = Prefs::open(APP_ID);
     let saved = session::load(&prefs);
     let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
-    let _ = PERSIST.set(Mutex::new(Persist { prefs, primary, last: String::new(), debounce: SaveDebounce::default() }));
+    let (saves, queued) = mpsc::channel::<Session>();
+    thread::Builder::new()
+        .name("session-save".into())
+        .spawn(move || {
+            for snapshot in queued {
+                session::save(&mut prefs, &snapshot);
+            }
+        })
+        .expect("the OS refused to start the session saver thread");
+    let _ = PERSIST.set(Mutex::new(Persist { primary, last: String::new(), debounce: SaveDebounce::default(), saves }));
 
     let cli: Vec<PathBuf> = rune::extra_args().iter().map(PathBuf::from).collect();
     handle.update(move |s, _| {
@@ -224,7 +235,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
                 tx.wake_after(SAVE_WAKE);
             }
             if p.debounce.due(now) {
-                session::save(&mut p.prefs, &snapshot);
+                let _ = p.saves.send(snapshot);
             }
         }
     }
