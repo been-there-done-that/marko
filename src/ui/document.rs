@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use rune::{El, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
-use rune_kit::{Kit, Markdown};
+use rune_kit::{Button, Kit, Markdown};
 
 use crate::app::AppState;
 use crate::load::{DocState, LoadError, strip_frontmatter};
@@ -26,6 +26,9 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
         DocState::Error(e) => error(&tab.path, e, k, t),
         DocState::Ready { src, large, lossy } => {
             let mut c = col().w_full();
+            if tab.deleted {
+                c = c.child(deleted_banner(k, t));
+            }
             if *large {
                 c = c.child(banner("doc-banner-large", "Large file — some features are slower", k, t));
             }
@@ -40,7 +43,8 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
                 .tasks_read_only()
                 .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &dir, url, tx))
                 .build(k);
-            c.child(md)
+            // A deleted file keeps its last text, dimmed to 60%.
+            c.child(if tab.deleted { md.layer_opacity(0.6) } else { md })
         }
     };
     let width = if s.wide { READ_W_WIDE } else { READ_W };
@@ -76,6 +80,22 @@ fn has_scheme(url: &str) -> bool {
         Some(colon) => !url[..colon].contains('/'),
         None => false,
     }
+}
+
+/// The notice for a file deleted on disk, with a button that closes its tab.
+fn deleted_banner(k: &Kit, t: &Tokens) -> El {
+    let close = Button::new("Close Tab")
+        .on_press(|s: &mut AppState| {
+            if let Some(id) = s.tabs.active().map(|tab| tab.id) {
+                s.tabs.close(id);
+            }
+        })
+        .build(k)
+        .key("deleted-close");
+    row().key("doc-banner-deleted").w_full().mb(16.0).px(12.0).py(8.0).radius(6.0).fill(t.code_bg).border(1.0, t.code_line).center_y()
+        .child(text("This file was deleted").font(k.ty.small).color(t.fg2))
+        .child(el().grow(1.0))
+        .child(close)
 }
 
 fn banner(key: &str, msg: &str, k: &Kit, t: &Tokens) -> El {

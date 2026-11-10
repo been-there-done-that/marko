@@ -2,7 +2,7 @@
 //! Find and More on the right.
 
 use rune::{ChromeInsets, El, el, icon, row, text};
-use rune_kit::shell::{TabItem, TabOrientation, TabReorder, TabStrip, WindowTitlebar};
+use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabReorder, TabStrip, WindowTitlebar};
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
 use crate::app::{AppState, MenuKind};
@@ -67,12 +67,13 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
         .key("tb-open");
     let open = menus::open_menu(s, k, open_btn, layers);
 
-    let ids: Vec<String> = s.tabs.iter().map(|tab| tab.id.to_string()).collect();
-    let active = s.tabs.active().map(|tab| tab.id.to_string());
-    let items = ids
-        .iter()
-        .zip(s.tabs.titles())
-        .map(|(id, title)| TabItem::new(id.clone(), title).icon(&icons::FILE_TEXT));
+    let active_id = s.tabs.active().map(|tab| tab.id);
+    let active = active_id.map(|id| id.to_string());
+    // A background tab changed on disk shows an accent dot until it is activated.
+    let items = s.tabs.iter().zip(s.tabs.titles()).map(|(tab, title)| {
+        let dot = (tab.changed && Some(tab.id) != active_id).then_some(TabItemStatus::Unread);
+        TabItem::new(tab.id.to_string(), title).icon(&icons::FILE_TEXT).status(dot)
+    });
     let strip = TabStrip::new("tabs", TabOrientation::Horizontal)
         .tabs(items)
         .active(active.as_deref())
