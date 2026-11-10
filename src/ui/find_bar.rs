@@ -23,6 +23,7 @@ pub fn view(s: &AppState, k: &Kit, t: &Tokens) -> El {
     let field = TextInput::new(&s.find.query)
         .on_edit(|s: &mut AppState| &mut s.find.query)
         .on_change(|s: &mut AppState, _: &mut Tx| s.sync_find())
+        .on_key(crate::ui::keys::find_field_key)
         .placeholder("Find")
         .plain()
         .width(Some(FIELD_W))

@@ -23,6 +23,25 @@ pub fn on_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     handled
 }
 
+/// Enter, Shift+Enter and Escape typed into the focused find field: the field would otherwise
+/// keep them, so the window's `on_key` never sees them.
+pub fn find_field_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    match ev.key {
+        Key::Escape => {
+            s.find.close();
+            s.find.query.focused = false;
+            true
+        }
+        Key::Enter if s.find.count() > 0 => {
+            s.find_step(!ev.mods.shift);
+            reveal_current(s, tx);
+            true
+        }
+        Key::Enter => true,
+        _ => false,
+    }
+}
+
 fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if matches!(ev.key, Key::Escape) {
         if s.menu.take().is_some() {

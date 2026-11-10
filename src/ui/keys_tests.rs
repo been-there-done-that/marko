@@ -150,8 +150,7 @@ fn escape_closes_find_and_clears() {
     let mut rt = runtime(AppState::new());
     loaded_basic(&mut rt);
     send(&mut rt, cmd('f'));
-    rt.state.find.query = rune::TextEdit::new("alpha");
-    rt.state.sync_find();
+    send(&mut rt, KeyEvent { key: Key::Text("alpha".into()), mods: Mods::default() });
     assert!(rt.state.find.count() > 0);
     send(&mut rt, KeyEvent { key: Key::Escape, mods: Mods::default() });
     assert!(!rt.state.find.open);
@@ -164,8 +163,7 @@ fn enter_and_shift_enter_step_matches() {
     let mut rt = runtime(AppState::new());
     loaded_basic(&mut rt);
     send(&mut rt, cmd('f'));
-    rt.state.find.query = rune::TextEdit::new("e");
-    rt.state.sync_find();
+    send(&mut rt, KeyEvent { key: Key::Text("e".into()), mods: Mods::default() });
     let n = rt.state.find.count();
     assert!(n >= 2, "basic.md has several blocks with an e, got {n}");
     send(&mut rt, KeyEvent { key: Key::Enter, mods: Mods::default() });
