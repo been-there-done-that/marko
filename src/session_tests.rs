@@ -179,3 +179,30 @@ fn empty_startup_skips_tabs_but_keeps_settings() {
     assert!(r.tabs.is_empty());
     assert_eq!(r.settings.startup, Startup::Empty);
 }
+
+#[test]
+fn usable_frame_accepts_a_sane_window_and_rejects_the_rest() {
+    assert_eq!(usable_frame((100, 80, 1200, 800)), Some(((100, 80), (1200, 800))));
+    assert_eq!(usable_frame((-1920, -20, 1100, 760)), Some(((-1920, -20), (1100, 760))), "a left-hand monitor");
+    assert_eq!(usable_frame((0, 0, 100, 100)), None, "a sliver");
+    assert_eq!(usable_frame((0, 0, 560, 399)), None);
+    assert_eq!(usable_frame((0, 0, 20_000, 800)), None);
+    assert_eq!(usable_frame((90_000, 0, 1100, 760)), None, "far off any desktop");
+    assert_eq!(usable_frame((0, -40_000, 1100, 760)), None);
+}
+
+#[test]
+fn frame_of_skips_windows_that_are_not_ordinary() {
+    let base = rune::WindowPlacement { position: (10, 20), content_size: (1100, 760), scale: 2.0, ..Default::default() };
+    assert_eq!(frame_of(&base), Some((10, 20, 1100, 760)));
+    assert_eq!(frame_of(&rune::WindowPlacement { maximized: true, ..base }), None);
+    assert_eq!(frame_of(&rune::WindowPlacement { minimized: true, ..base }), None);
+    assert_eq!(frame_of(&rune::WindowPlacement { full_screen: true, ..base }), None);
+}
+
+#[test]
+fn a_session_without_a_frame_still_loads() {
+    let json = r#"{"tabs":[],"active":null,"roots":[],"sidebar_visible":true,"zoom":1.0,"wide":false,"appearance":"system","recent":[],"frame":null}"#;
+    let s: Session = serde_json::from_str(json).unwrap();
+    assert_eq!(s.frame, None);
+}

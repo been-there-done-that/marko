@@ -108,6 +108,11 @@ pub struct AppState {
     pub doc_scroll: Progress,
     // Task B: the background picture.
     pub bg: crate::background::BackgroundState,
+    // Task C: the Settings panel.
+    /// Whether the Settings panel is up.
+    pub settings_open: bool,
+    // Task E: the command palette.
+    pub palette: crate::commands::Palette,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -147,6 +152,8 @@ impl AppState {
             stats_last: None,
             doc_scroll: Progress::new(),
             bg: crate::background::BackgroundState::default(),
+            settings_open: false,
+            palette: crate::commands::Palette::new(),
         }
     }
 

@@ -6,7 +6,8 @@ pub(crate) mod editor;
 mod empty;
 mod find_bar;
 pub mod keys;
-mod menus;
+pub(crate) mod menus;
+mod palette;
 mod sidebar_view;
 pub(crate) mod tab_strip;
 mod titlebar;
@@ -35,6 +36,7 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
         layers.push(find_bar::view(s, k, t));
     }
     guard(s, k, &mut layers);
+    palette::layers(s, k, t, &mut layers);
     if s.drop_hover {
         layers.push(drop_overlay(k, t));
     }
