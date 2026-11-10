@@ -51,5 +51,5 @@ All in `src/theme.rs`, in `markdown_style`. Each is a §4.7 value that `Markdown
 - Drag-and-drop works on Linux under X11 (`WAYLAND_DISPLAY` removed at startup).
 - Relaunch restores the saved session, and missing paths are dropped silently.
 - Two instances: the second one does not save the session.
-- Idle CPU stays at 0% for 30 s with a document open.
+- Idle CPU: measured once on Linux (X11, debug build, `basic.md` + `fixtures/` open): 0 CPU ticks over 20 s, RSS 141 MB. The 90 MB budget still needs a release-build measurement.
 - Native open file and open folder dialogs work.
