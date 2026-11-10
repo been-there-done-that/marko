@@ -104,6 +104,12 @@ pub struct AppState {
     pub stats_last: Option<crate::stats::Sample>,
     /// Reading progress for the active document: its line and pill, and which viewport was restored.
     pub doc_scroll: Progress,
+    // Task C: the Settings panel.
+    pub settings_open: bool,
+    /// Appearance, Text, Background or General (0 to 3).
+    pub settings_tab: usize,
+    pub body_combo: rune_kit::ComboboxState,
+    pub code_combo: rune_kit::ComboboxState,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -142,6 +148,10 @@ impl AppState {
             stats_text: rune::LiveText::new(""),
             stats_last: None,
             doc_scroll: Progress::new(),
+            settings_open: false,
+            settings_tab: 0,
+            body_combo: rune_kit::ComboboxState::default(),
+            code_combo: rune_kit::ComboboxState::default(),
         }
     }
 

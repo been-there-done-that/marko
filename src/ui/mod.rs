@@ -7,7 +7,9 @@ mod empty;
 mod find_bar;
 pub mod keys;
 mod menus;
+mod settings_view;
 mod sidebar_view;
+mod slider;
 pub(crate) mod tab_strip;
 mod titlebar;
 
@@ -27,6 +29,7 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     let t = &look.tokens;
     let mut layers = Vec::new();
     let bar = titlebar::bar(s, k, look, chrome, &mut layers);
+    settings_view::layers(s, look, &mut layers);
     if s.toast.is_some() {
         layers.push(toast(s, k, t));
     }

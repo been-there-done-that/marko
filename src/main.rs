@@ -146,6 +146,18 @@ fn scene_conflict(s: &mut AppState) {
     }
 }
 
+/// The Settings panel on tab `tab`, over a document, with a font list filled in by hand.
+fn scene_settings(s: &mut AppState, tab: usize) {
+    scene_basic(s);
+    s.settings_open = true;
+    s.settings_tab = tab;
+    s.fonts = fonts::FontList {
+        all: ["DejaVu Sans", "DejaVu Sans Mono", "Inter", "Noto Serif"].map(String::from).to_vec(),
+        mono: ["DejaVu Sans Mono", "Noto Sans Mono"].map(String::from).to_vec(),
+        loaded: true,
+    };
+}
+
 /// A named scene for `--snap`: a label and the setup that puts the app in that state.
 type Scene = (&'static str, fn(&mut AppState));
 
@@ -162,6 +174,10 @@ static SCENES: &[Scene] = &[
     ("deleted", scene_deleted),
     ("conflict", scene_conflict),
     ("code", scene_basic),
+    ("settings-appearance", |s: &mut AppState| scene_settings(s, 0)),
+    ("settings-text", |s: &mut AppState| scene_settings(s, 1)),
+    ("settings-background", |s: &mut AppState| scene_settings(s, 2)),
+    ("settings-general", |s: &mut AppState| scene_settings(s, 3)),
     ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];

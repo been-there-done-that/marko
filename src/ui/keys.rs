@@ -94,6 +94,10 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.menu.take().is_some() {
             return true;
         }
+        if s.settings_open {
+            s.settings_open = false;
+            return true;
+        }
         if s.find.open {
             s.find.close();
             return true;
@@ -106,6 +110,11 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         s.find_step(!ev.mods.shift);
         reveal_current(s, tx);
+        return true;
+    }
+    if chord(ev, ',', false) {
+        s.settings_open = !s.settings_open;
+        s.menu = None;
         return true;
     }
     if chord(ev, 'f', false) {
