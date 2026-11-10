@@ -10,6 +10,7 @@ mod paths;
 mod sidebar;
 mod tabs;
 mod theme;
+mod worker;
 
 use rune::tok::{self, type_};
 use rune::{AppSpec, Cx, El, col, text};
