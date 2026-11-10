@@ -3,10 +3,15 @@ use std::path::PathBuf;
 use rune::{Env, FileDialogError, Runtime};
 
 use crate::app::{AppState, MenuKind};
+use crate::load::{DocState, LoadError};
 use crate::ui::view;
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name)
+}
+
+fn fixtures_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
 }
 
 fn runtime(state: AppState) -> Runtime<AppState> {
@@ -102,4 +107,75 @@ fn menu_row_key_on_lead_selects_the_item() {
     press(&mut rt, "menu-clear-recent");
     assert!(rt.state.recent.is_empty());
     assert_eq!(rt.state.menu, None);
+}
+
+#[test]
+fn empty_state_when_no_tabs() {
+    let mut rt = runtime(AppState::new());
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("empty").is_some());
+    assert!(rt.find("doc").is_none());
+}
+
+#[test]
+fn closing_last_tab_shows_empty_state() {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let mut rt = runtime(s);
+    press(&mut rt, "close");
+    rt.frame(1.0 / 60.0);
+    assert!(rt.state.tabs.is_empty());
+    assert!(rt.find("empty").is_some());
+}
+
+#[test]
+fn drop_mixed_paths() {
+    let mut rt = runtime(AppState::new());
+    rt.frame(1.0 / 60.0);
+    rt.drop_files(vec![fixtures_dir(), fixture("basic.md"), fixture("picture.png")], Some((560.0, 420.0)));
+    for _ in 0..3 {
+        rt.frame(1.0 / 60.0);
+    }
+    assert_eq!(rt.state.sidebar.roots.len(), 1);
+    assert_eq!(rt.state.tabs.iter().count(), 1);
+    assert!(rt.find("toast").is_some());
+}
+
+#[test]
+fn drop_hover_shows_overlay() {
+    let mut rt = runtime(AppState::new());
+    rt.state.drop_hover = true;
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("drop-overlay").is_some());
+    rt.update(|s, _| s.drop_hover = false);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("drop-overlay").is_none());
+}
+
+#[test]
+fn error_doc_shows_message() {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let id = s.tabs.active().map(|t| t.id).unwrap_or_default();
+    s.loaded(id, DocState::Error(LoadError::Binary));
+    let mut rt = runtime(s);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("doc-error").is_some());
+}
+
+#[test]
+fn loose_files_section_only_for_files_outside_roots() {
+    let mut s = AppState::new();
+    let _ = s.sidebar.add_root(&PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src"));
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let mut rt = runtime(s);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("side-loose").is_some());
+
+    let mut s = AppState::new();
+    let _ = s.sidebar.add_root(&fixtures_dir());
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let mut rt = runtime(s);
+    rt.frame(1.0 / 60.0);
+    assert!(rt.find("side-loose").is_none());
 }
