@@ -3,6 +3,7 @@
 
 mod document;
 mod empty;
+mod find_bar;
 pub mod keys;
 mod menus;
 mod sidebar_view;
@@ -35,6 +36,9 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     let bar = titlebar::bar(s, k, dark, chrome, &mut layers);
     if s.toast.is_some() {
         layers.push(toast(s, k, t));
+    }
+    if s.find.open {
+        layers.push(find_bar::view(s, k, t));
     }
     if s.drop_hover {
         layers.push(drop_overlay(k, t));

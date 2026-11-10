@@ -1,8 +1,9 @@
-//! The keyboard map (§4.13): the app's shortcuts. Find (1b) is not bound yet.
+//! The keyboard map (§4.13): the app's shortcuts.
 
 use rune::{Key, KeyEvent, Tx};
 
 use crate::app::{AppState, Job};
+use crate::find::{reveal_current, toggle as toggle_find};
 use crate::load::DocState;
 use crate::ui::menus::{close_tab, copy_path, open_file_dialog, open_folder_dialog};
 
@@ -11,10 +12,39 @@ fn chord(ev: &KeyEvent, c: char, shift: bool) -> bool {
     ev.is_command(c) && ev.mods.shift == shift
 }
 
-/// Handles a key press. Returns true only when the key did something.
+/// Handles a key press. Returns true only when the key did something. A press that changes the
+/// active tab also re-runs an open find, so its matches follow the tab.
 pub fn on_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let before = s.tabs.active().map(|t| t.id);
+    let handled = dispatch(s, ev, tx);
+    if s.tabs.active().map(|t| t.id) != before {
+        s.sync_find();
+    }
+    handled
+}
+
+fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if matches!(ev.key, Key::Escape) {
-        return s.menu.take().is_some();
+        if s.menu.take().is_some() {
+            return true;
+        }
+        if s.find.open {
+            s.find.close();
+            return true;
+        }
+        return false;
+    }
+    if s.find.open && matches!(ev.key, Key::Enter) {
+        if s.find.count() == 0 {
+            return false;
+        }
+        s.find_step(!ev.mods.shift);
+        reveal_current(s, tx);
+        return true;
+    }
+    if chord(ev, 'f', false) {
+        toggle_find(s, tx);
+        return true;
     }
     if matches!(ev.key, Key::Tab) && ev.mods.ctrl {
         s.tabs.cycle(!ev.mods.shift);

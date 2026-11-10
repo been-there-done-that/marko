@@ -80,22 +80,25 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
         .on_select(|s: &mut AppState, id: &str, _: &mut rune::Tx| {
             if let Ok(id) = id.parse() {
                 s.tabs.activate(id);
+                s.sync_find();
             }
         })
         .on_close(|s: &mut AppState, id: &str, _: &mut rune::Tx| {
             if let Ok(id) = id.parse() {
                 s.tabs.close(id);
+                s.sync_find();
             }
         })
         .on_reorder(|s: &mut AppState, r: TabReorder, _: &mut rune::Tx| {
             if let Ok(id) = r.id.parse() {
                 s.tabs.move_tab(id, r.to);
+                s.sync_find();
             }
         })
         .build_layered(k, layers);
 
-    let find = ghost_button("Find", "Find arrives soon", &icons::SEARCH)
-        .disabled(true)
+    let find = ghost_button("Find", format!("Find {}", chord(false, "F")), &icons::SEARCH)
+        .on_press_tx(|s: &mut AppState, tx: &mut rune::Tx| crate::find::toggle(s, tx))
         .build(k)
         .key("tb-find");
     let more = ghost_button("More", "More", &icons::ELLIPSIS)

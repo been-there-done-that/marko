@@ -123,3 +123,71 @@ fn bare_r_does_nothing() {
     send(&mut rt, KeyEvent { key: Key::Text("r".into()), mods: Mods::default() });
     assert!(rt.state.jobs.is_empty());
 }
+
+/// Opens `basic.md` and loads it straight away, as the worker would.
+fn loaded_basic(rt: &mut Runtime<AppState>) -> u64 {
+    rt.state.open_paths(&[fixture("basic.md")], 0.0);
+    rt.state.jobs.clear();
+    let id = rt.state.tabs.active().map(|t| t.id).unwrap();
+    rt.state.loaded(id, crate::load::load(&fixture("basic.md")));
+    rt.frame(1.0 / 60.0);
+    id
+}
+
+#[test]
+fn cmd_f_opens_find_bar() {
+    let mut rt = runtime(AppState::new());
+    loaded_basic(&mut rt);
+    assert!(rt.find("find-bar").is_none());
+    send(&mut rt, cmd('f'));
+    assert!(rt.state.find.open);
+    assert!(rt.find("find-bar").is_some());
+    assert!(rt.find("find-input").is_some());
+}
+
+#[test]
+fn escape_closes_find_and_clears() {
+    let mut rt = runtime(AppState::new());
+    loaded_basic(&mut rt);
+    send(&mut rt, cmd('f'));
+    rt.state.find.query = rune::TextEdit::new("alpha");
+    rt.state.sync_find();
+    assert!(rt.state.find.count() > 0);
+    send(&mut rt, KeyEvent { key: Key::Escape, mods: Mods::default() });
+    assert!(!rt.state.find.open);
+    assert_eq!(rt.state.find.count(), 0);
+    assert!(rt.find("find-bar").is_none());
+}
+
+#[test]
+fn enter_and_shift_enter_step_matches() {
+    let mut rt = runtime(AppState::new());
+    loaded_basic(&mut rt);
+    send(&mut rt, cmd('f'));
+    rt.state.find.query = rune::TextEdit::new("e");
+    rt.state.sync_find();
+    let n = rt.state.find.count();
+    assert!(n >= 2, "basic.md has several blocks with an e, got {n}");
+    send(&mut rt, KeyEvent { key: Key::Enter, mods: Mods::default() });
+    assert_eq!(rt.state.find.current, 1);
+    send(&mut rt, KeyEvent { key: Key::Enter, mods: Mods { shift: true, ..Mods::default() } });
+    assert_eq!(rt.state.find.current, 0);
+}
+
+#[test]
+fn find_follows_the_active_tab() {
+    let mut rt = runtime(AppState::new());
+    let first = loaded_basic(&mut rt);
+    send(&mut rt, cmd('f'));
+    rt.state.find.query = rune::TextEdit::new("alpha");
+    rt.state.sync_find();
+    assert_eq!(rt.state.find.for_tab, Some(first));
+    rt.state.open_paths(&[fixture("hello.md")], 0.0);
+    rt.state.jobs.clear();
+    let second = rt.state.tabs.active().map(|t| t.id).unwrap();
+    rt.state.loaded(second, crate::load::load(&fixture("hello.md")));
+    send(&mut rt, ctrl_tab(false));
+    assert_eq!(rt.state.tabs.active().map(|t| t.id), Some(first));
+    assert_eq!(rt.state.find.for_tab, Some(first));
+    assert_eq!(rt.state.find.label(), format!("1 of {}", rt.state.find.count()));
+}
