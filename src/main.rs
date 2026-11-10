@@ -3,6 +3,7 @@
 mod app;
 mod edit;
 mod find;
+mod fonts;
 mod gpu_env;
 mod icons;
 mod images;

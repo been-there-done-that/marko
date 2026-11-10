@@ -65,6 +65,9 @@ pub struct AppState {
     pub settings: crate::settings::Settings,
     /// Themes read from the config folder's `themes/`, loaded after launch.
     pub user_themes: Vec<crate::themes::ThemeDef>,
+    /// Installed font families for the font pickers, loaded after launch.
+    #[allow(dead_code, reason = "filled by the font loader, read by the Settings panel")]
+    pub fonts: crate::fonts::FontList,
     pub drop_hover: bool,
     pub menu: Option<MenuKind>,
     /// Where the tab context menu's secondary press landed, in window points.
@@ -118,6 +121,7 @@ impl AppState {
             wide: false,
             settings: crate::settings::initial(),
             user_themes: Vec::new(),
+            fonts: crate::fonts::FontList::default(),
             drop_hover: false,
             menu: None,
             tab_menu_at: None,
