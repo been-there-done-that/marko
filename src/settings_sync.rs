@@ -113,12 +113,12 @@ pub fn spawn(dir: PathBuf, handle: AppHandle<AppState>) {
                 batch.push(ev);
             }
             let touched = |want: &dyn Fn(&Path) -> bool| batch.iter().flat_map(|e| &e.paths).any(|p| want(p));
-            if touched(&|p| p.file_name().is_some_and(|n| n == FILE)) {
-                if let Some(theirs) = read(&watch_dir) {
-                    handle.update(move |s, _| {
-                        apply_external(s, theirs);
-                    });
-                }
+            if touched(&|p| p.file_name().is_some_and(|n| n == FILE))
+                && let Some(theirs) = read(&watch_dir)
+            {
+                handle.update(move |s, _| {
+                    apply_external(s, theirs);
+                });
             }
             if touched(&|p| p.starts_with(&themes)) {
                 let (list, _errors) = crate::themes::load_dir(&themes);
