@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use rune_kit::shell::TabDragState;
 
 use crate::find::Find;
-use crate::load::DocState;
+use crate::load::{DocState, LoadError};
 use crate::paths::canonical;
 use crate::sidebar::{build_tree, readme_or_first, Sidebar};
 use crate::tabs::TabSet;
+use crate::watch::{content_hash, FileEvent};
 
 /// Most recently opened files kept for the Open menu.
 const RECENT_CAP: usize = 16;
@@ -72,6 +73,11 @@ pub struct AppState {
     pub mode: Mode,
 }
 
+/// The file name shown in toasts: the last path component, or the whole path when there is none.
+fn file_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string())
+}
+
 impl AppState {
     pub fn new() -> Self {
         Self {
@@ -92,12 +98,94 @@ impl AppState {
         }
     }
 
-    /// A worker finished loading a tab's document.
+    /// A worker finished loading a tab's document. A reload whose text is unchanged does nothing
+    /// visible. A changed document replaces the old one, with a toast when its tab is active and
+    /// a dot when it isn't. A file that went missing keeps its last content, marked deleted.
     pub fn loaded(&mut self, tab: u64, doc: DocState) {
-        if let Some(t) = self.tabs.get_mut(tab) {
-            t.doc = doc;
-        }
+        self.apply_loaded(tab, doc);
         self.sync_find();
+    }
+
+    fn apply_loaded(&mut self, tab: u64, doc: DocState) {
+        let now = self.now;
+        let active = self.tabs.active().map(|t| t.id) == Some(tab);
+        let Some(t) = self.tabs.get_mut(tab) else { return };
+        let was_ready = matches!(t.doc, DocState::Ready { .. });
+        let was_deleted = t.deleted;
+        let hash = match &doc {
+            DocState::Ready { src, .. } => Some(content_hash(src)),
+            _ => None,
+        };
+        let Some(hash) = hash else {
+            if was_ready && matches!(doc, DocState::Error(LoadError::NotFound)) {
+                self.mark_deleted(tab);
+                return;
+            }
+            t.doc = doc;
+            t.hash = None;
+            t.deleted = false;
+            return;
+        };
+        let same = was_ready && t.hash == Some(hash);
+        if same && !was_deleted {
+            return;
+        }
+        t.doc = doc;
+        t.hash = Some(hash);
+        t.deleted = false;
+        if was_ready && !same {
+            let name = file_name(&t.path);
+            if active {
+                self.show_toast(format!("Reloaded {name}"), now);
+            } else {
+                t.changed = true;
+            }
+        }
+    }
+
+    /// A file or a sidebar root changed on disk (from the watcher). An open file reloads, a
+    /// missing one is marked deleted, and a root's folder is scanned again.
+    pub fn file_event(&mut self, ev: FileEvent) {
+        match ev {
+            FileEvent::Changed(path) => {
+                if self.is_root(&path) {
+                    self.jobs.push(Job::Scan { root: path });
+                    return;
+                }
+                for id in self.tab_ids_for(&path) {
+                    self.jobs.push(Job::Load { tab: id, path: path.clone() });
+                }
+            }
+            FileEvent::Removed(path) => {
+                if self.is_root(&path) {
+                    self.jobs.push(Job::Scan { root: path });
+                    return;
+                }
+                for id in self.tab_ids_for(&path) {
+                    self.mark_deleted(id);
+                }
+            }
+        }
+    }
+
+    /// Marks a tab's file as deleted and toasts it once. The last content stays on screen.
+    fn mark_deleted(&mut self, tab: u64) {
+        let now = self.now;
+        let Some(t) = self.tabs.get_mut(tab) else { return };
+        if t.deleted {
+            return;
+        }
+        t.deleted = true;
+        let name = file_name(&t.path);
+        self.show_toast(format!("{name} was deleted"), now);
+    }
+
+    fn is_root(&self, path: &Path) -> bool {
+        self.sidebar.roots.iter().any(|r| r.path == path)
+    }
+
+    fn tab_ids_for(&self, path: &Path) -> Vec<u64> {
+        self.tabs.iter().filter(|t| t.path == path).map(|t| t.id).collect()
     }
 
     /// A worker finished scanning a root. Builds its tree; opens the README (or the first

@@ -12,6 +12,7 @@ mod sidebar;
 mod tabs;
 mod theme;
 mod ui;
+mod watch;
 mod worker;
 
 use std::path::PathBuf;
@@ -24,6 +25,7 @@ use rune::{AppHandle, AppSpec, Tx};
 
 use app::{AppState, Job, MenuKind};
 use session::{InstanceLock, SaveDebounce};
+use watch::Watcher;
 
 /// The app id; its prefs folder holds the session.
 const APP_ID: &str = "dev.rune.markdown";
@@ -35,6 +37,8 @@ const SAVE_WAKE: Duration = Duration::from_millis(1100);
 static JOBS: OnceLock<Sender<Job>> = OnceLock::new();
 /// Saving state, set once the window is ready.
 static PERSIST: OnceLock<Mutex<Persist>> = OnceLock::new();
+/// Live reload, started once the window is ready. Its watched folders follow the tabs and roots.
+static WATCHER: OnceLock<Mutex<Watcher>> = OnceLock::new();
 
 struct Persist {
     prefs: Prefs,
@@ -113,6 +117,10 @@ fn main() {
 /// session, then opens the paths given on the command line.
 fn start(handle: AppHandle<AppState>) {
     let _ = JOBS.set(worker::spawn_worker(handle.clone()));
+    let watch_handle = handle.clone();
+    if let Ok(watcher) = Watcher::start(move |ev| watch_handle.update(move |s, _| s.file_event(ev))) {
+        let _ = WATCHER.set(Mutex::new(watcher));
+    }
 
     let prefs = Prefs::open(APP_ID);
     let saved = session::load(&prefs);
@@ -131,6 +139,11 @@ fn start(handle: AppHandle<AppState>) {
 /// session once it has been quiet for a while. Returns true only when the screen changed.
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
+    if let Some(watcher) = WATCHER.get() {
+        let files: Vec<PathBuf> = s.tabs.iter().map(|t| t.path.clone()).collect();
+        let roots: Vec<PathBuf> = s.sidebar.roots.iter().map(|r| r.path.clone()).collect();
+        watcher.lock().unwrap_or_else(|e| e.into_inner()).sync(&files, &roots);
+    }
     if let Some(jobs) = JOBS.get() {
         for job in s.jobs.drain(..) {
             let _ = jobs.send(job);

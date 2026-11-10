@@ -23,6 +23,15 @@ pub struct Tab {
     /// A New tab that has never been saved; its path does not exist on disk yet.
     #[allow(dead_code)] // Read by Save and the unsaved-changes guard (Task 7).
     pub untitled: bool,
+    /// Changed on disk while in the background: the strip shows a dot until the tab is activated.
+    pub changed: bool,
+    /// The file was deleted; `doc` keeps the last content, shown dimmed.
+    pub deleted: bool,
+    /// Hash of the text in `doc`, so a reload that changed nothing stays silent.
+    pub hash: Option<u64>,
+    /// Set instead of reloading when the tab has unsaved edits (Edit mode, phase 2). Unused until then.
+    #[allow(dead_code)] // Edit mode (phase 2) sets it; the banner (Task 9) reads it.
+    pub conflict: bool,
 }
 
 pub struct TabSet {
@@ -43,7 +52,7 @@ impl TabSet {
     pub fn open(&mut self, path: &Path) -> (u64, bool) {
         let key = canonical(path);
         if let Some(i) = self.tabs.iter().position(|t| t.path == key) {
-            self.active = Some(i);
+            self.set_active(Some(i));
             return (self.tabs[i].id, false);
         }
         (self.insert_tab(key, DocState::Loading, None, false), true)
@@ -63,8 +72,8 @@ impl TabSet {
         let at = self.active.map_or(self.tabs.len(), |a| a + 1);
         let id = self.next_id;
         self.next_id += 1;
-        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, edit, untitled });
-        self.active = Some(at);
+        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, edit, untitled, changed: false, deleted: false, hash: None, conflict: false });
+        self.set_active(Some(at));
         id
     }
 
@@ -74,11 +83,12 @@ impl TabSet {
         let Some(i) = self.index_of(id) else { return };
         let tab = self.tabs.remove(i);
         self.remember_closed(tab.path);
-        self.active = match self.active {
+        let next = match self.active {
             Some(a) if a == i => if i < self.tabs.len() { Some(i) } else { i.checked_sub(1) },
             Some(a) if a > i => Some(a - 1),
             other => other,
         };
+        self.set_active(next);
     }
 
     /// Closes every tab except `id`, which becomes active.
@@ -104,7 +114,7 @@ impl TabSet {
 
     pub fn activate(&mut self, id: u64) {
         if let Some(i) = self.index_of(id) {
-            self.active = Some(i);
+            self.set_active(Some(i));
         }
     }
 
@@ -113,7 +123,7 @@ impl TabSet {
     pub fn activate_index(&mut self, i: usize) {
         let target = if i == 8 { self.tabs.len().checked_sub(1) } else { Some(i) };
         if let Some(t) = target.filter(|&t| t < self.tabs.len()) {
-            self.active = Some(t);
+            self.set_active(Some(t));
         }
     }
 
@@ -123,12 +133,13 @@ impl TabSet {
         if n == 0 {
             return;
         }
-        self.active = Some(match (self.active, forward) {
+        let next = match (self.active, forward) {
             (None, true) => 0,
             (None, false) => n - 1,
             (Some(a), true) => (a + 1) % n,
             (Some(a), false) => (a + n - 1) % n,
-        });
+        };
+        self.set_active(Some(next));
     }
 
     /// Moves a tab to position `to` (clamped to the end). The active tab stays active.
@@ -138,7 +149,8 @@ impl TabSet {
         let tab = self.tabs.remove(from);
         let at = to.min(self.tabs.len());
         self.tabs.insert(at, tab);
-        self.active = active_id.and_then(|a| self.index_of(a));
+        let next = active_id.and_then(|a| self.index_of(a));
+        self.set_active(next);
     }
 
     pub fn active(&self) -> Option<&Tab> {
@@ -165,6 +177,14 @@ impl TabSet {
 
     pub fn is_empty(&self) -> bool {
         self.tabs.is_empty()
+    }
+
+    /// Makes the tab at index `at` active. Activating a tab clears its changed dot.
+    fn set_active(&mut self, at: Option<usize>) {
+        self.active = at;
+        if let Some(tab) = at.and_then(|i| self.tabs.get_mut(i)) {
+            tab.changed = false;
+        }
     }
 
     fn index_of(&self, id: u64) -> Option<usize> {
@@ -195,7 +215,8 @@ impl TabSet {
             Some(a) if self.index_of(a).is_some() => a,
             _ => fallback,
         };
-        self.active = self.index_of(target);
+        let next = self.index_of(target);
+        self.set_active(next);
     }
 }
 

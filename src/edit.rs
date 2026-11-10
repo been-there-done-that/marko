@@ -1,10 +1,10 @@
 //! Edit buffers: the text being edited, its saved state, atomic saves and untitled names.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::Path;
 
 use rune::TextEdit;
+
+use crate::watch::content_hash;
 
 /// The text an Edit tab holds, with the hash of the last saved (or opened) content.
 pub struct EditBuffer {
@@ -28,14 +28,6 @@ impl EditBuffer {
     pub fn mark_saved(&mut self) {
         self.saved_hash = content_hash(&self.text.text);
     }
-}
-
-/// Hash of a document's text, for change detection. `DefaultHasher::new()` uses fixed keys,
-/// so hashes compare across calls in one process.
-pub fn content_hash(src: &str) -> u64 {
-    let mut h = DefaultHasher::new();
-    src.hash(&mut h);
-    h.finish()
 }
 
 /// Writes `text` verbatim to a temp file beside `path`, then renames it over `path`, so a
