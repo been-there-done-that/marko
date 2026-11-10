@@ -130,7 +130,7 @@ pub fn load_dir(dir: &Path) -> (Vec<ThemeDef>, Vec<String>) {
             _ => errors.push(format!("{stem}.json")),
         }
     }
-    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.sort_by_key(|t| t.name.to_lowercase());
     (out, errors)
 }
 
