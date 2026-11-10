@@ -81,8 +81,7 @@ pub struct AppState {
     pub images: ImageCache,
     /// Set by `poll` each frame; handlers have no clock of their own.
     pub now: f64,
-    /// Read by Edit mode (phase 2); the Preview | Edit control is hand-built and inert for now.
-    #[allow(dead_code)]
+    /// Preview or Edit, set by the Preview | Edit control and ⌘E.
     pub mode: Mode,
     /// The tab whose unsaved-changes guard is up.
     pub guard: Option<u64>,

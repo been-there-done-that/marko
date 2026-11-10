@@ -15,10 +15,9 @@ pub struct Tab {
     pub id: u64,
     pub path: PathBuf,
     pub doc: DocState,
-    #[allow(dead_code)] // Per-tab scroll memory is not restored yet (NOTES-1a).
+    #[allow(dead_code)] // Per-tab scroll memory is not restored yet (NOTES.md).
     pub scroll: f32,
     /// Edit mode's buffer, set once the tab is first edited (Task 6 reads it).
-    #[allow(dead_code)] // Read by Edit mode (Task 6).
     pub edit: Option<EditBuffer>,
     /// A New tab that has never been saved; its path does not exist on disk yet.
     pub untitled: bool,
@@ -96,7 +95,7 @@ impl TabSet {
     }
 
     /// Closes every tab except `id`, which becomes active.
-    #[allow(dead_code)] // The tab context menu (phase 1b) calls this.
+    #[allow(dead_code)] // Only tests call this: the tab menu closes through `AppState::close_clean`, which keeps dirty tabs.
     pub fn close_others(&mut self, id: u64) {
         let Some(keep) = self.index_of(id) else { return };
         self.retain_indices(|i| i == keep, id);
@@ -104,7 +103,7 @@ impl TabSet {
 
     /// Closes the tabs to the right of `id`. The active tab stays unless it was closed,
     /// in which case `id` becomes active.
-    #[allow(dead_code)] // The tab context menu (phase 1b) calls this.
+    #[allow(dead_code)] // Only tests call this: the tab menu closes through `AppState::close_clean`, which keeps dirty tabs.
     pub fn close_to_right(&mut self, id: u64) {
         let Some(at) = self.index_of(id) else { return };
         self.retain_indices(|i| i <= at, id);
@@ -204,7 +203,7 @@ impl TabSet {
 
     /// Keeps the tabs whose old index passes `keep`, records the rest as closed, and
     /// keeps the active tab if it survived, otherwise activates `fallback`.
-    #[allow(dead_code)] // Used by close_others and close_to_right, which phase 1b's context menu calls.
+    #[allow(dead_code)] // Used by close_others and close_to_right, which only the tests call.
     fn retain_indices(&mut self, keep: impl Fn(usize) -> bool, fallback: u64) {
         let active_id = self.active().map(|t| t.id);
         let old = std::mem::take(&mut self.tabs);

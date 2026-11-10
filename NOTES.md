@@ -53,3 +53,55 @@ All in `src/theme.rs`, in `markdown_style`. Each is a §4.7 value that `Markdown
 - Two instances: the second one does not save the session.
 - Idle CPU: measured once on Linux (X11, debug build, `basic.md` + `fixtures/` open): 0 CPU ticks over 20 s, RSS 141 MB. The 90 MB budget still needs a release-build measurement.
 - Native open file and open folder dialogs work.
+
+# Phase 1b, 1c and 2 notes
+
+Read this with the Phase 1a notes above. Where a 1a line says Edit mode is inert or a tab menu is missing, Phases 1b to 2 replace it.
+
+## Phase 1b (tabs, find, guard, menus)
+
+### Deviations
+
+- **Tab menu closes through `AppState::close_clean`.** It skips tabs with unsaved edits, so a bulk close never loses work. `TabSet::close_others` and `close_to_right` are kept for the tests only.
+- **⌘F focuses the find field via `TextEdit.focused`.**
+- **Find highlights are not shown in the Edit preview.**
+- **Show in Folder and Open other files spawn `xdg-open`, `open` or `explorer`**, because `tx.open_url` rejects `file:` URLs.
+
+### TODO(upstream)
+
+- `src/ui/document.rs`: remote images show their alt text, not the "Remote image · Load" placeholder. The Markdown image hook can only return an image or `None`.
+- `src/theme.rs`, `markdown_style`: the §4.7 values `MarkdownStyle` cannot express yet (lead paragraph, vertical rhythm, heading rule, H6 colour, table header size and padding, inline-code radius and padding, code-block radius). The full list is under Phase 1a.
+
+## Phase 1c (live reload, conflicts, save)
+
+### Deviations
+
+- **Remote images show alt text.** No HTTP client is in the app; see the TODO(upstream) above.
+- **No SVG decode.** The image crate has no `svg` feature, so SVG images show their alt text.
+- **Image cache is not invalidated when an image file changes.** Its byte bound also excludes mip levels, so the real footprint is somewhat larger than the bound.
+- **Edit-preview images only load after a reload.**
+- **Scroll sync is one way**: editor to preview. It is untested in a real window.
+- **No PollWatcher fallback.** If the native watcher cannot start on a platform, live reload does nothing.
+- **Watcher start errors are silent.** `Watcher::start` failures are dropped in `main.rs`.
+- **Quitting with unsaved edits loses them.** Rune has no quit hook, so the guard only runs on tab close.
+
+## Phase 2 (editor, packaging)
+
+### Deviations
+
+- **The editor uses the UI font.** `TextArea` has no mono font setter.
+- **Packaging is Linux only.**
+
+### TODO(upstream)
+
+- `TextArea` needs a monospace font setter for the source pane.
+
+### Unverified
+
+- Drag-and-drop of files and folders onto the window (Linux, X11 with `WAYLAND_DISPLAY` removed).
+- Native open and save dialogs.
+- Relaunch restores the saved session, and missing paths are dropped silently.
+- Two instances: the second one does not save the session.
+- Typing feel in the editor.
+- Scroll sync between editor and preview.
+- Live reload in a real editor.

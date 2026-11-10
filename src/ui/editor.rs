@@ -74,7 +74,7 @@ pub fn conflict_banner(s: &AppState, k: &Kit, dark: bool) -> Option<El> {
         .build(k)
         .key("conflict-keep");
     Some(
-        row().key("conflict-banner").w_full().mx(16.0).mt(12.0).px(12.0).py(8.0).gap(8.0).radius(6.0)
+        row().key("conflict-banner").w_full().mt(12.0).px(12.0).py(8.0).gap(8.0).radius(6.0)
             .fill(t.code_bg).border(1.0, t.code_line).center_y()
             .child(text("This file changed on disk").font(k.ty.small).color(t.fg2))
             .child(el().grow(1.0))

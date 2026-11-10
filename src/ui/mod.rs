@@ -2,7 +2,7 @@
 //! layered over them.
 
 mod document;
-mod editor;
+pub(crate) mod editor;
 mod empty;
 mod find_bar;
 pub mod keys;
@@ -63,7 +63,7 @@ fn body(s: &AppState, dark: bool, k: &Kit) -> El {
         document::view(s, k, dark)
     };
     let main = match editor::conflict_banner(s, k, dark) {
-        Some(banner) => col().key("main").w_full().grow(1.0).min_h(0.0).child(banner).child(main),
+        Some(banner) => col().key("main").grow(1.0).min_h(0.0).child(banner).child(main),
         None => main,
     };
     let mut row_el = row().key("body").w_full().grow(1.0).min_h(0.0);

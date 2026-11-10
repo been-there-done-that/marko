@@ -15,7 +15,7 @@ pub const READ_W_WIDE: f32 = 960.0;
 
 /// Colours the app draws with directly, beside the kit's own tokens.
 pub struct Tokens {
-    #[allow(dead_code)] // The titlebar fill is not themed yet (NOTES-1a).
+    #[allow(dead_code)] // The titlebar fill is not themed yet (NOTES.md).
     pub bar: Color,
     pub side: Color,
     pub line: Color,
@@ -23,9 +23,9 @@ pub struct Tokens {
     pub fg: Color,
     pub fg2: Color,
     pub fg3: Color,
-    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES-1a).
+    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES.md).
     pub hover: Color,
-    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES-1a).
+    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES.md).
     pub press: Color,
     pub accent: Color,
     pub accent_soft: Color,

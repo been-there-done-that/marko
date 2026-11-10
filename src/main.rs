@@ -26,7 +26,7 @@ use rune::{AppHandle, AppSpec, Tx};
 
 use app::{AppState, Job, MenuKind};
 use session::{InstanceLock, SaveDebounce};
-use watch::Watcher;
+use watch::{FileEvent, Watcher};
 
 /// The app id; its prefs folder holds the session.
 const APP_ID: &str = "dev.rune.markdown";
@@ -76,6 +76,56 @@ fn scene_files(s: &mut AppState) {
     settle(s);
 }
 
+/// Opens `basic.md` and settles its load, so a scene starts from a rendered document.
+fn scene_basic(s: &mut AppState) {
+    s.open_paths(&[fixtures().join("basic.md")], 0.0);
+    settle(s);
+}
+
+/// The active tab's edit buffer, created on first use. Scenes type into it directly.
+fn active_buffer(s: &mut AppState) -> Option<&mut edit::EditBuffer> {
+    s.tabs.active_mut()?.edit.as_mut()
+}
+
+/// Switches the active tab to Edit and adds a few characters, so it is dirty.
+fn scene_dirty_editor(s: &mut AppState) {
+    scene_basic(s);
+    ui::editor::enter(s);
+    if let Some(buf) = active_buffer(s) {
+        let end = buf.text.text.len();
+        buf.text.set_caret(end);
+        buf.text.insert("\n\nEdited in place.");
+    }
+}
+
+fn scene_find(s: &mut AppState) {
+    scene_basic(s);
+    s.open_find();
+    s.find.query.replace_text("table");
+    s.sync_find();
+}
+
+fn scene_guard(s: &mut AppState) {
+    scene_dirty_editor(s);
+    if let Some(id) = s.tabs.active().map(|t| t.id) {
+        s.request_close(id);
+    }
+}
+
+fn scene_deleted(s: &mut AppState) {
+    scene_basic(s);
+    if let Some(path) = s.tabs.active().map(|t| t.path.clone()) {
+        s.file_event(FileEvent::Removed(path));
+    }
+}
+
+fn scene_conflict(s: &mut AppState) {
+    scene_dirty_editor(s);
+    if let Some(tab) = s.tabs.active_mut() {
+        tab.conflict = true;
+    }
+}
+
 /// A named scene for `--snap`: a label and the setup that puts the app in that state.
 type Scene = (&'static str, fn(&mut AppState));
 
@@ -85,6 +135,12 @@ static SCENES: &[Scene] = &[
     ("files", scene_files),
     ("menu-open", |s: &mut AppState| s.menu = Some(MenuKind::Open)),
     ("drop", |s: &mut AppState| s.drop_hover = true),
+    ("find", scene_find),
+    ("editor", scene_dirty_editor),
+    ("guard", scene_guard),
+    ("deleted", scene_deleted),
+    ("conflict", scene_conflict),
+    ("code", scene_basic),
 ];
 
 fn main() {
