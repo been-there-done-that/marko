@@ -4,6 +4,7 @@ mod app;
 mod edit;
 mod find;
 mod icons;
+mod images;
 mod load;
 mod open;
 mod paths;

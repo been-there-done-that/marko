@@ -5,11 +5,13 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use rune::{El, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
+use rune_kit::markdown::CodeFrame;
 use rune_kit::{Button, Highlight, Kit, Markdown};
 
 use crate::app::AppState;
 use crate::load::{DocState, LoadError, strip_frontmatter};
 use crate::icons;
+use crate::images::{Resolved, resolve};
 use crate::paths::is_markdown;
 use crate::theme::{self, READ_W, READ_W_WIDE, Tokens};
 
@@ -44,19 +46,46 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
     reading("doc", s, content)
 }
 
-/// The rendered Markdown for `src`, with its frontmatter hidden. Links resolve against the
-/// folder of `path`. The Edit view's preview renders its buffer's text through this too, with no
-/// find highlights, since the matches were found in the saved source.
+/// The rendered Markdown for `src`, with its frontmatter hidden. Links and images resolve against
+/// the folder of `path`. Images are read from the app's cache; one not decoded yet (or that
+/// failed) shows the broken-image glyph and its alt text. The Edit view's preview renders its
+/// buffer's text through this too, with no find highlights, since the matches were found in the
+/// saved source.
 pub fn markdown(s: &AppState, k: &Kit, dark: bool, src: &str, path: &Path, highlights: Vec<(Vec<Range<usize>>, Highlight)>) -> El {
-    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    let doc = path.to_path_buf();
+    let link_doc = doc.clone();
+    let hits = s.images.hits();
     Markdown::new(strip_frontmatter(src))
         .style(theme::markdown_style(dark, s.zoom))
         .scroll_wide(true)
         .selectable(true)
         .tasks_read_only()
         .highlights(highlights)
-        .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &dir, url, tx))
+        .images(move |src: &str| match resolve(&doc, src) {
+            Resolved::Local(p) => hits.get(&p).cloned(),
+            // TODO(upstream): "Remote image · Load" needs a placeholder the Markdown image hook can draw.
+            Resolved::Remote(_) | Resolved::Unsupported => None,
+        })
+        .code_frame(move |card, f| code_header(card, f, dark))
+        .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &link_doc, url, tx))
+        .link_help(|href: &str| Some(href.to_string()))
         .build(k)
+}
+
+/// A code block with a header row: its language on the left, a Copy button on the right.
+fn code_header(card: El, f: &CodeFrame<'_>, dark: bool) -> El {
+    let k = theme::kit(dark);
+    let t = theme::tokens(dark);
+    let code = f.source.to_string();
+    let copy = Button::new("Copy")
+        .on_press_tx(move |_: &mut AppState, tx: &mut Tx| tx.copy(code.clone()))
+        .build(k)
+        .key(format!("code-copy-{}", f.index));
+    let head = row().w_full().h(32.0).px(12.0).center_y().fill(t.code_bg)
+        .child(text(f.language.unwrap_or("text")).font(k.ty.small).color(t.fg2))
+        .child(el().grow(1.0))
+        .child(copy);
+    col().w_full().child(head).child(card)
 }
 
 /// A scrolling reading column keyed `key`, centred, holding `content`.
@@ -78,33 +107,36 @@ fn find_highlights(s: &AppState, tab: u64) -> Vec<(Vec<Range<usize>>, Highlight)
         .collect()
 }
 
-/// A link in the document. Web and mail links open in the browser; a relative Markdown path opens
-/// as a tab beside the document's folder; anything else is ignored in phase 1.
-fn route_link(s: &mut AppState, dir: &Path, url: &str, tx: &mut Tx) {
+/// A link in the document. Web and mail links open in the browser. A `#anchor` does nothing yet.
+/// A relative Markdown file opens as a tab; any other local file opens in the system's app for it.
+fn route_link(s: &mut AppState, doc: &Path, url: &str, tx: &mut Tx) {
     if ["http:", "https:", "mailto:"].iter().any(|scheme| url.starts_with(scheme)) {
         let _ = tx.open_url(url);
         return;
     }
-    if has_scheme(url) {
-        return;
-    }
-    let file = url.split('#').next().unwrap_or_default();
-    if file.is_empty() {
-        return;
-    }
-    let target = dir.join(file);
+    let Resolved::Local(target) = resolve(doc, url) else { return };
     if is_markdown(&target) {
         let now = s.now;
         s.open_paths(&[target], now);
+    } else {
+        open_with_os(&target);
     }
 }
 
-/// True when the text starts with a URL scheme such as `tel:` (a colon before any slash).
-fn has_scheme(url: &str) -> bool {
-    match url.find(':') {
-        Some(colon) => !url[..colon].contains('/'),
-        None => false,
-    }
+/// Opens a file in the system's default app. `tx.open_url` refuses `file:` links, so this runs
+/// the platform opener on its own thread, and the UI thread never waits on it.
+fn open_with_os(path: &Path) {
+    let path = path.to_path_buf();
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(windows) {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new(opener).arg(&path).status();
+    });
 }
 
 /// The notice for a file deleted on disk, with a button that closes its tab.
