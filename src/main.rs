@@ -3,6 +3,7 @@
 mod app;
 mod edit;
 mod find;
+mod gpu_env;
 mod icons;
 mod images;
 mod load;
@@ -165,6 +166,7 @@ fn main() {
     #[cfg(target_os = "linux")]
     unsafe {
         std::env::remove_var("WAYLAND_DISPLAY");
+        gpu_env::apply();
     }
     rune::prewarm_gpu();
 

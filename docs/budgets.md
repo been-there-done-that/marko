@@ -8,7 +8,7 @@ thin LTO, stripped) on the Linux development laptop (Wayland session, 16 logical
 |---|---|---|---|
 | Cold start to first content frame (1 small file) | ≤ 250 ms | Not measured (see below) | — |
 | Idle CPU, document open, no input | 0% (no frames drawn) | 0 utime+stime ticks over 20 s (CLK_TCK 100, so 0 ms CPU) | One 20 s window, one fixture, no pointer or focus events. The Rune frame counter was not read, so "no frames drawn" is inferred from zero CPU, not counted. |
-| Memory footprint, 1 typical README | ≤ 90 MB | VmRSS 106.9 MB (VmHWM 106.9 MB) at 3 s with `fixtures/basic.md` | Measured with `/proc/<pid>/status` on the Linux build only. The fixture is small, so this is a floor for a typical README. Excludes GPU/driver memory and the wgpu device allocations that are not in the process RSS. procwatch was not used. |
+| Memory footprint, 1 typical README | ≤ 90 MB | VmRSS 63.4 MB at 3 s with `fixtures/basic.md` (was 106.9 MB before `src/gpu_env.rs` stopped the Vulkan loader from loading the LLVM-linked lavapipe and radv drivers) | Measured with `/proc/<pid>/status` on the Linux build only. The fixture is small, so this is a floor for a typical README. Excludes GPU/driver memory and the wgpu device allocations that are not in the process RSS. procwatch was not used. |
 | Memory, 20 tabs + 2 roots of ~2,000 files | ≤ 160 MB | Not measured | Needs 20 open tabs and two sidebar roots of about 2,000 files each. Not set up in this pass. |
 | Tab switch (warm) | next frame (≤ 8 ms at 120 Hz) | Not measured | Needs a frame profile of a running window. |
 | Scroll a 10k-line doc | holds 120 Hz on ProMotion | Not measured | Needs a 10k-line fixture and a bench run; no such fixture exists in `fixtures/`. |
