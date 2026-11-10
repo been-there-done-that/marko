@@ -62,6 +62,10 @@ fn body(s: &AppState, dark: bool, k: &Kit) -> El {
     } else {
         document::view(s, k, dark)
     };
+    let main = match editor::conflict_banner(s, k, dark) {
+        Some(banner) => col().key("main").w_full().grow(1.0).min_h(0.0).child(banner).child(main),
+        None => main,
+    };
     let mut row_el = row().key("body").w_full().grow(1.0).min_h(0.0);
     if show_side {
         row_el = row_el.child(sidebar_view::view(s, dark)).child(el().w(1.0).h_full().fill(theme::tokens(dark).line));

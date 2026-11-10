@@ -1,6 +1,7 @@
 use super::*;
 use std::path::Path;
 use crate::app::AppState;
+use crate::edit::EditBuffer;
 use crate::load::DocState;
 use crate::paths::canonical;
 use crate::worker::run_job;
@@ -101,4 +102,53 @@ fn deleted_then_restored() {
     settle(&mut s);
     assert!(!s.tabs.active().unwrap().deleted);
     assert_eq!(src_of(&mut s, id), "# back");
+}
+
+#[test]
+fn dirty_tab_reload_sets_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(&canonical(dir.path()), "a.md", "# kept");
+    let mut s = AppState::new();
+    s.open_paths(std::slice::from_ref(&file), 0.0);
+    settle(&mut s);
+    let id = s.tabs.active().unwrap().id;
+    {
+        let tab = s.tabs.active_mut().unwrap();
+        let mut buf = EditBuffer::from_src("# kept");
+        buf.text.text.push_str(" edited");
+        tab.edit = Some(buf);
+    }
+
+    // Another program writes the file while the tab holds unsaved edits.
+    std::fs::write(&file, "# outside").unwrap();
+    s.file_event(FileEvent::Changed(file.clone()));
+    settle(&mut s);
+
+    let tab = s.tabs.get_mut(id).unwrap();
+    assert!(tab.conflict, "the tab asks instead of reloading");
+    assert_eq!(src_of(&mut s, id), "# kept", "the document is not replaced");
+    let buf = s.tabs.get_mut(id).unwrap().edit.as_ref().unwrap().text();
+    assert_eq!(buf, "# kept edited", "the edits stay");
+    assert!(s.toast.is_none(), "no reload toast for a conflict");
+}
+
+#[test]
+fn clean_buffer_follows_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = write(&canonical(dir.path()), "a.md", "# kept");
+    let mut s = AppState::new();
+    s.open_paths(std::slice::from_ref(&file), 0.0);
+    settle(&mut s);
+    let id = s.tabs.active().unwrap().id;
+    s.tabs.active_mut().unwrap().edit = Some(EditBuffer::from_src("# kept"));
+
+    std::fs::write(&file, "# outside").unwrap();
+    s.file_event(FileEvent::Changed(file.clone()));
+    settle(&mut s);
+
+    let tab = s.tabs.get_mut(id).unwrap();
+    assert!(!tab.conflict);
+    assert_eq!(src_of(&mut s, id), "# outside");
+    let buf = s.tabs.get_mut(id).unwrap().edit.as_ref().unwrap().text();
+    assert_eq!(buf, "# outside", "a clean buffer shows the reloaded text");
 }

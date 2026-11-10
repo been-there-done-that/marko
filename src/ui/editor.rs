@@ -1,8 +1,8 @@
 //! The Edit view (§4.8): the Markdown source in a text area on the left, and the rendered
 //! document beside it, updated as the source changes.
 
-use rune::{El, ScrollSpec, TextEdit, col, el, row};
-use rune_kit::{Kit, TextArea};
+use rune::{El, ScrollPos, ScrollSpec, TextEdit, col, el, row, text};
+use rune_kit::{Button, Kit, TextArea};
 
 use crate::app::{AppState, Mode};
 use crate::edit::EditBuffer;
@@ -58,6 +58,31 @@ pub fn enter(s: &mut AppState) -> bool {
     true
 }
 
+/// The notice for the active tab when its file changed on disk under unsaved edits. Reload drops
+/// the edits and loads the file; Keep Mine keeps them, and the next save overwrites the file.
+pub fn conflict_banner(s: &AppState, k: &Kit, dark: bool) -> Option<El> {
+    if !s.tabs.active().is_some_and(|t| t.conflict) {
+        return None;
+    }
+    let t = theme::tokens(dark);
+    let reload = Button::new("Reload")
+        .on_press(|s: &mut AppState| s.reload_active_discarding())
+        .build(k)
+        .key("conflict-reload");
+    let keep = Button::new("Keep Mine")
+        .on_press(|s: &mut AppState| s.keep_mine_active())
+        .build(k)
+        .key("conflict-keep");
+    Some(
+        row().key("conflict-banner").w_full().mx(16.0).mt(12.0).px(12.0).py(8.0).gap(8.0).radius(6.0)
+            .fill(t.code_bg).border(1.0, t.code_line).center_y()
+            .child(text("This file changed on disk").font(k.ty.small).color(t.fg2))
+            .child(el().grow(1.0))
+            .child(reload)
+            .child(keep),
+    )
+}
+
 /// Switches the active document to its rendered preview.
 pub fn preview(s: &mut AppState) {
     s.mode = Mode::Preview;
@@ -84,6 +109,7 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
             &fallback
         }
     };
+    let at = s.editor_at.clone();
     let source_area = TextArea::new(edit)
         .label("Markdown source")
         .width(None)
@@ -92,9 +118,15 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
         .key("editor");
     let left = col().key("editor-pane").w_full().grow(1.0).min_h(0.0).px(PANE_PAD).py(PANE_PAD)
         .scroll(ScrollSpec { stick_bottom: false })
+        .on_scroll_offset(move |p: ScrollPos| {
+            at.set([p.offset[1], p.max[1]]);
+        })
         .child(source_area);
     let md = document::markdown(s, k, dark, &edit.text, &tab.path, Vec::new());
-    let preview = document::reading("preview", s, md);
+    let preview_at = s.preview_at.clone();
+    let preview = document::reading("preview", s, md).on_scroll_offset(move |p: ScrollPos| {
+        preview_at.set([p.offset[1], p.max[1]]);
+    });
     row().key("editor-split").w_full().grow(1.0).min_h(0.0)
         .child(left)
         .child(el().w(1.0).h_full().fill(t.line))

@@ -139,6 +139,7 @@ fn start(handle: AppHandle<AppState>) {
 /// session once it has been quiet for a while. Returns true only when the screen changed.
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
+    s.sync_preview_scroll(tx);
     if let Some(watcher) = WATCHER.get() {
         let files: Vec<PathBuf> = s.tabs.iter().filter(|t| !t.untitled).map(|t| t.path.clone()).collect();
         let roots: Vec<PathBuf> = s.sidebar.roots.iter().map(|r| r.path.clone()).collect();
