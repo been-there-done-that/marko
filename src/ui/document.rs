@@ -1,10 +1,11 @@
 //! The document area (§4.7, §4.12): the active tab's Markdown in a centred reading column, or
 //! its error, with the large-file and lossy-decode banners above it.
 
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use rune::{El, ScrollSpec, TextStyle, Tx, col, el, icon, row, text};
-use rune_kit::{Kit, Markdown};
+use rune_kit::{Highlight, Kit, Markdown};
 
 use crate::app::AppState;
 use crate::load::{DocState, LoadError, strip_frontmatter};
@@ -38,6 +39,7 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
                 .scroll_wide(true)
                 .selectable(true)
                 .tasks_read_only()
+                .highlights(find_highlights(s, tab.id))
                 .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &dir, url, tx))
                 .build(k);
             c.child(md)
@@ -47,6 +49,17 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
     let column = col().w_full().max_w(width + 2.0 * SIDE_PAD).px(SIDE_PAD).pt(TOP_PAD).pb(BOTTOM_PAD).child(content);
     let centred = row().w_full().justify_center().child(column);
     col().key("doc").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(centred)
+}
+
+/// The find matches for `tab`, with the current one stronger. Empty unless the bar is open and its
+/// matches were found in this tab's source (`Find::for_tab`).
+fn find_highlights(s: &AppState, tab: u64) -> Vec<(Vec<Range<usize>>, Highlight)> {
+    if !s.find.open || s.find.for_tab != Some(tab) {
+        return Vec::new();
+    }
+    s.find.matches.iter().enumerate()
+        .map(|(i, m)| (m.clone(), if i == s.find.current { Highlight::current() } else { Highlight::new() }))
+        .collect()
 }
 
 /// A link in the document. Web and mail links open in the browser; a relative Markdown path opens

@@ -2,6 +2,7 @@
 
 mod app;
 mod edit;
+mod find;
 mod icons;
 mod load;
 mod open;

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use rune_kit::shell::TabDragState;
 
+use crate::find::Find;
 use crate::load::DocState;
 use crate::paths::canonical;
 use crate::sidebar::{build_tree, readme_or_first, Sidebar};
@@ -63,6 +64,7 @@ pub struct AppState {
     pub toast: Option<Toast>,
     pub jobs: Vec<Job>,
     pub drag: TabDragState,
+    pub find: Find,
     /// Set by `poll` each frame; handlers have no clock of their own.
     pub now: f64,
     /// Read by Edit mode (phase 2); the Preview | Edit control is hand-built and inert for now.
@@ -84,6 +86,7 @@ impl AppState {
             toast: None,
             jobs: Vec::new(),
             drag: TabDragState::default(),
+            find: Find::new(),
             now: 0.0,
             mode: Mode::Preview,
         }
@@ -94,6 +97,7 @@ impl AppState {
         if let Some(t) = self.tabs.get_mut(tab) {
             t.doc = doc;
         }
+        self.sync_find();
     }
 
     /// A worker finished scanning a root. Builds its tree; opens the README (or the first
