@@ -13,6 +13,7 @@ use crate::load::{DocState, LoadError, strip_frontmatter};
 use crate::icons;
 use crate::images::{Resolved, resolve};
 use crate::paths::is_markdown;
+use crate::progress::{self, doc_key};
 use crate::theme::{self, READ_W, READ_W_WIDE, Tokens};
 
 /// Side padding of the reading column, top and bottom padding (§4.7).
@@ -24,6 +25,7 @@ const BOTTOM_PAD: f32 = 96.0;
 pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
     let t = theme::tokens(dark);
     let Some(tab) = s.tabs.active() else { return el().key("doc") };
+    let ready = matches!(tab.doc, DocState::Ready { .. });
     let content = match &tab.doc {
         DocState::Loading => el(),
         DocState::Error(e) => error(&tab.path, e, k, t),
@@ -43,7 +45,24 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
             c.child(if tab.deleted { md.layer_opacity(0.6) } else { md })
         }
     };
-    reading("doc", s, content)
+    let scroll = reading(&doc_key(tab.id, ready), s, content).on_scroll_offset(progress::on_report(tab, &s.doc_scroll));
+    let scroll = if ready { scroll.on_visible(progress::on_show(tab.id)) } else { scroll };
+    with_progress(scroll, s, k, t)
+}
+
+/// The document's scroll viewport with the reading-progress line across its top and the
+/// percentage pill at its bottom right. Both are in the tree only while the document scrolls.
+fn with_progress(scroll: El, s: &AppState, k: &Kit, t: &Tokens) -> El {
+    let area = col().key("doc-area").w_full().grow(1.0).min_h(0.0).child(scroll);
+    if !s.doc_scroll.shown {
+        return area;
+    }
+    let line = el().key("doc-progress-line").pin(Some(0.0), Some(0.0), Some(0.0), None).h(progress::LINE_H).fill(t.accent)
+        .live_rect(&s.doc_scroll.line);
+    let pill = row().key("doc-progress").pin(None, None, Some(16.0), Some(16.0)).h(22.0).px(8.0).center_y().radius(11.0)
+        .fill(t.code_bg).border(1.0, t.code_line)
+        .child(text("100%").font(k.ty.small).color(t.fg3).live_text(&s.doc_scroll.pct));
+    area.child(line).child(pill)
 }
 
 /// The rendered Markdown for `src`, with its frontmatter hidden. Links and images resolve against

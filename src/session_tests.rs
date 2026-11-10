@@ -108,3 +108,52 @@ fn debounce_fires_once_after_one_second_quiet() {
     assert!(d.due(1.9));
     assert!(!d.due(2.5), "fires once per burst");
 }
+
+#[test]
+fn session_round_trips_scroll() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.md");
+    let b = dir.path().join("b.md");
+    std::fs::write(&a, "# a").unwrap();
+    std::fs::write(&b, "# b").unwrap();
+
+    let mut s = AppState::new();
+    s.open_paths(&[a.clone(), b.clone()], 0.0);
+    let ids: Vec<u64> = s.tabs.iter().map(|t| t.id).collect();
+    for (id, offset) in ids.into_iter().zip([120.0, 480.5]) {
+        if let Some(t) = s.tabs.get_mut(id) {
+            t.scroll = offset;
+        }
+    }
+
+    let prefs_path = dir.path().join("state").join("prefs.json");
+    save(&mut Prefs::at(&prefs_path), &capture(&s));
+    let loaded = load(&Prefs::at(&prefs_path));
+    assert_eq!(loaded.scroll, vec![120.0, 480.5]);
+
+    let mut r = AppState::new();
+    restore(&mut r, loaded, 0.0);
+    let offsets: Vec<f32> = r.tabs.iter().map(|t| t.scroll).collect();
+    assert_eq!(offsets, vec![120.0, 480.5]);
+}
+
+#[test]
+fn old_session_without_scroll_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = dir.path().join("a.md");
+    std::fs::write(&a, "# a").unwrap();
+    let mut s = AppState::new();
+    s.open_paths(std::slice::from_ref(&a), 0.0);
+    let mut json = serde_json::to_value(capture(&s)).unwrap();
+    json.as_object_mut().unwrap().remove("scroll");
+    let path = dir.path().join("prefs.json");
+    std::fs::write(&path, serde_json::json!({ "session": json }).to_string()).unwrap();
+
+    let session = load(&Prefs::at(&path));
+    assert!(session.scroll.is_empty());
+    assert_eq!(session.tabs, vec![canonical(&a)]);
+    let mut r = AppState::new();
+    restore(&mut r, session, 0.0);
+    assert_eq!(r.tabs.iter().count(), 1);
+    assert_eq!(r.tabs.active().map(|t| t.scroll), Some(0.0));
+}

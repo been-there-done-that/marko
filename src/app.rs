@@ -11,6 +11,7 @@ use crate::find::Find;
 use crate::images::ImageCache;
 use crate::load::{DocState, LoadError, LARGE_BYTES};
 use crate::paths::canonical;
+use crate::progress::Progress;
 use crate::sidebar::{build_tree, readme_or_first, Sidebar};
 use crate::tabs::TabSet;
 use crate::watch::{content_hash, FileEvent};
@@ -94,6 +95,8 @@ pub struct AppState {
     /// The editor fraction last copied to the preview. Cleared outside Edit, so re-entering it
     /// syncs again.
     pub scroll_synced: Option<f32>,
+    /// Reading progress for the active document: its line and pill, and which viewport was restored.
+    pub doc_scroll: Progress,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -125,6 +128,7 @@ impl AppState {
             editor_at: Live::new([0.0; 2]),
             preview_at: Live::new([0.0; 2]),
             scroll_synced: None,
+            doc_scroll: Progress::new(),
         }
     }
 
