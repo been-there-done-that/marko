@@ -116,6 +116,9 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.tabs.cycle(!ev.mods.shift);
         return true;
     }
+    if matches!(ev.key, Key::PageUp | Key::PageDown) && ev.mods.ctrl && ev.mods.shift {
+        return move_active_tab(s, matches!(ev.key, Key::PageDown));
+    }
     if chord(ev, 'r', false) {
         return reload_active(s);
     }
@@ -172,6 +175,18 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     false
+}
+
+/// Moves the active tab one place left or right in the strip. A tab at that end stays put, and
+/// the press then does nothing.
+fn move_active_tab(s: &mut AppState, forward: bool) -> bool {
+    let Some(id) = s.tabs.active().map(|t| t.id) else { return false };
+    let Some(at) = s.tabs.iter().position(|t| t.id == id) else { return false };
+    let len = s.tabs.iter().count();
+    let to = if forward { at.checked_add(1) } else { at.checked_sub(1) };
+    let Some(to) = to.filter(|&i| i < len) else { return false };
+    s.tabs.move_tab(id, to);
+    true
 }
 
 /// Queues a fresh load for the active tab and shows it as loading again.

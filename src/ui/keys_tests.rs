@@ -82,6 +82,28 @@ fn ctrl_tab_cycles() {
     assert_eq!(rt.state.tabs.active().map(|t| t.id), Some(last), "Ctrl+Shift+Tab goes back, wrapping to the last");
 }
 
+/// Ctrl+Shift+PageUp or PageDown, which move the active tab.
+fn ctrl_shift_page(down: bool) -> KeyEvent {
+    let key = if down { Key::PageDown } else { Key::PageUp };
+    KeyEvent { key, mods: Mods { ctrl: true, shift: true, ..Default::default() } }
+}
+
+#[test]
+fn ctrl_shift_page_moves_the_active_tab() {
+    let mut rt = runtime(AppState::new());
+    rt.state.open_paths(&[fixture("basic.md"), fixture("frontmatter.md"), fixture("hello.md")], 0.0);
+    let ids: Vec<u64> = rt.state.tabs.iter().map(|t| t.id).collect();
+    rt.state.tabs.activate(ids[0]);
+    send(&mut rt, ctrl_shift_page(true));
+    let order: Vec<u64> = rt.state.tabs.iter().map(|t| t.id).collect();
+    assert_eq!(order, [ids[1], ids[0], ids[2]], "moved one place right");
+    assert_eq!(rt.state.tabs.active().map(|t| t.id), Some(ids[0]), "still the active tab");
+    send(&mut rt, ctrl_shift_page(false));
+    send(&mut rt, ctrl_shift_page(false));
+    let order: Vec<u64> = rt.state.tabs.iter().map(|t| t.id).collect();
+    assert_eq!(order, [ids[0], ids[1], ids[2]], "a tab at the left end stays put");
+}
+
 #[test]
 fn zoom_clamps() {
     let mut rt = runtime(AppState::new());

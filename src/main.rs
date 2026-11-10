@@ -80,6 +80,18 @@ fn scene_files(s: &mut AppState) {
     settle(s);
 }
 
+/// Three tabs of mixed name lengths, the middle one long enough to be cut, for the tab strip.
+/// The long copy goes to the snapshot folder under `target/`, as a scene only.
+fn scene_tabs(s: &mut AppState) {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/snaps");
+    let long = dir.join("Infrastructure-PR-52-billing-revenue-reconciliation.md");
+    if std::fs::create_dir_all(&dir).is_ok() {
+        let _ = std::fs::copy(fixtures().join("hello.md"), &long);
+    }
+    s.open_paths(&[fixtures().join("basic.md"), long, fixtures().join("frontmatter.md")], 0.0);
+    settle(s);
+}
+
 /// Opens `basic.md` and settles its load, so a scene starts from a rendered document.
 fn scene_basic(s: &mut AppState) {
     s.open_paths(&[fixtures().join("basic.md")], 0.0);
@@ -137,6 +149,7 @@ static SCENES: &[Scene] = &[
     ("empty", |_: &mut AppState| {}),
     ("folder", scene_folder),
     ("files", scene_files),
+    ("tabs", scene_tabs),
     ("menu-open", |s: &mut AppState| s.menu = Some(MenuKind::Open)),
     ("drop", |s: &mut AppState| s.drop_hover = true),
     ("find", scene_find),
@@ -210,6 +223,7 @@ fn start(handle: AppHandle<AppState>) {
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
     s.sync_preview_scroll(tx);
+    ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
     let progress_changed = s.sync_doc_scroll();
     if let Some(watcher) = WATCHER.get() {

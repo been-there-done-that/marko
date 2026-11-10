@@ -1,15 +1,15 @@
 //! The titlebar (§4.2): sidebar toggle and Open on the left, the tab strip, Preview | Edit,
 //! Find and More on the right.
 
-use rune::{ChromeInsets, El, PointerPress, TextStyle, Tx, el, icon, row, text};
-use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabOverflow, TabReorder, TabStrip, WindowTitlebar};
+use rune::{ChromeInsets, El, TextStyle, el, icon, row, text};
+use rune_kit::shell::WindowTitlebar;
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
 use crate::app::{AppState, Mode, MenuKind};
 use crate::icons;
 use crate::stats;
 use crate::theme::{self, Tokens};
-use crate::ui::{editor, menus};
+use crate::ui::{editor, menus, tab_strip};
 
 /// Shortcut text for a key on the current platform: `⌘O` on macOS, `Ctrl+O` elsewhere.
 pub fn chord(shift: bool, key: &str) -> String {
@@ -60,27 +60,6 @@ fn readout(s: &AppState, k: &Kit, t: &Tokens) -> El {
     text(stats::text(s.stats)).key("stats").font(font).color(t.fg3).live_text(&s.stats_text)
 }
 
-/// The narrowest a tab may be made to fit its name, and the widest.
-const TAB_MIN_W: f32 = 96.0;
-const TAB_MAX_W: f32 = 240.0;
-/// What a tab adds around its title: padding and avatar, the gap, the title's end inset when
-/// emphasized, and the status or close slot (`tab_strip/tab.rs`: 6 + 16 + 6 + 24 + 20 + 6).
-const TAB_CHROME_W: f32 = 78.0;
-
-/// The width a tab needs for `title` in the tab font, as rune measures it.
-fn tab_content_width(title: &str, k: &Kit) -> f32 {
-    // The tab strip sets its titles at this weight and size (`tab/tab.rs` `title`).
-    let font = TextStyle { weight: k.ty.ui_medium.weight, ..k.ty.ui_compact };
-    rune::text::measure(title, &[], font, None).0 + TAB_CHROME_W
-}
-
-/// The tab width cap: the longest title's content width, clamped to [`TAB_MIN_W`, `TAB_MAX_W`].
-/// Tabs share the strip equally up to this, so short names make narrow tabs.
-pub fn tab_max_width<'a>(titles: impl IntoIterator<Item = &'a str>, k: &Kit) -> f32 {
-    let longest = titles.into_iter().map(|t| tab_content_width(t, k)).fold(0.0, f32::max);
-    longest.clamp(TAB_MIN_W, TAB_MAX_W)
-}
-
 /// The titlebar band for this frame. Menus it opens are pushed into `layers`.
 pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut Vec<El>) -> El {
     let t = theme::tokens(dark);
@@ -95,45 +74,7 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
         .key("tb-open");
     let open = menus::open_menu(s, k, open_btn, layers);
 
-    let active_id = s.tabs.active().map(|tab| tab.id);
-    let active = active_id.map(|id| id.to_string());
-    // A background tab changed on disk, or with unsaved edits, shows an accent dot. A changed
-    // background tab's dot clears when it is activated; a dirty tab keeps its dot until saved.
-    let titles = s.tabs.titles();
-    let max_w = tab_max_width(titles.iter().map(String::as_str), k);
-    let items = s.tabs.iter().zip(titles.iter()).map(|(tab, title)| {
-        let unread = (tab.changed && Some(tab.id) != active_id) || editor::dirty(tab);
-        let (id, path) = (tab.id, tab.path.display().to_string());
-        TabItem::new(tab.id.to_string(), title).icon(&icons::FILE_TEXT).status(unread.then_some(TabItemStatus::Unread)).decorate(move |slot, _| {
-            slot.help(path).on_secondary_press(move |s: &mut AppState, p: PointerPress, _: &mut Tx| {
-                s.tab_menu_at = Some(p);
-                s.menu = Some(MenuKind::TabContext { id });
-            })
-        })
-    });
-    let strip = TabStrip::new("tabs", TabOrientation::Horizontal)
-        .overflow(TabOverflow::ShrinkThenScroll { min_width: 28.0, max_width: max_w, pinned_width: 36.0, fade_width: 24.0 })
-        .tabs(items)
-        .active(active.as_deref())
-        .drag_state(&s.drag, |s: &mut AppState| &mut s.drag)
-        .on_select(|s: &mut AppState, id: &str, _: &mut rune::Tx| {
-            if let Ok(id) = id.parse() {
-                s.tabs.activate(id);
-                s.sync_find();
-            }
-        })
-        .on_close(|s: &mut AppState, id: &str, _: &mut rune::Tx| {
-            if let Ok(id) = id.parse() {
-                s.request_close(id);
-            }
-        })
-        .on_reorder(|s: &mut AppState, r: TabReorder, _: &mut rune::Tx| {
-            if let Ok(id) = r.id.parse() {
-                s.tabs.move_tab(id, r.to);
-                s.sync_find();
-            }
-        })
-        .build_layered(k, layers);
+    let strip = tab_strip::view(s, k, t);
     if let (Some(MenuKind::TabContext { id }), Some(point)) = (s.menu, s.tab_menu_at) {
         menus::tab_menu(s, k, id, point, layers);
     }

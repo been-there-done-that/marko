@@ -8,6 +8,7 @@ mod find_bar;
 pub mod keys;
 mod menus;
 mod sidebar_view;
+pub(crate) mod tab_strip;
 mod titlebar;
 
 use std::path::PathBuf;

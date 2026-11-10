@@ -18,7 +18,7 @@ fn tab_width(rt: &mut Runtime<AppState>, path: &std::path::Path) -> Option<f32> 
 }
 
 #[test]
-fn tabs_shrink_to_the_longest_name() {
+fn tabs_size_to_their_names() {
     let dir = tempfile::tempdir().expect("a temp dir");
     let short = dir.path().join("a.md");
     let other = dir.path().join("b.md");
@@ -27,15 +27,13 @@ fn tabs_shrink_to_the_longest_name() {
         fs::write(p, "# Title\n").expect("a fixture file");
     }
 
-    let mut few = AppState::new();
-    few.open_paths(&[short.clone(), other.clone()], 0.0);
-    let mut rt = runtime(few);
+    let mut s = AppState::new();
+    s.open_paths(&[short.clone(), other.clone(), long.clone()], 0.0);
+    let mut rt = runtime(s);
     let short_w = tab_width(&mut rt, &short).expect("the short tab is drawn");
+    let other_w = tab_width(&mut rt, &other).expect("the other short tab is drawn");
+    let long_w = tab_width(&mut rt, &long).expect("the long tab is drawn");
 
-    let mut many = AppState::new();
-    many.open_paths(&[short.clone(), other.clone(), long.clone()], 0.0);
-    let mut rt = runtime(many);
-    let with_long_w = tab_width(&mut rt, &short).expect("the short tab is drawn");
-
-    assert!(short_w < with_long_w, "short names: {short_w} should be narrower than {with_long_w}");
+    assert!(short_w < long_w, "a short name ({short_w}) is narrower than a long one ({long_w})");
+    assert!((short_w - other_w).abs() < 2.0, "two one-letter names are about equal: {short_w} and {other_w}");
 }

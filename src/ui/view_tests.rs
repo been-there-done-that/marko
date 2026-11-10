@@ -83,6 +83,20 @@ fn tab_strip_selects_and_closes() {
 }
 
 #[test]
+fn closing_a_background_tab_keeps_the_active_one() {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md"), fixture("hello.md")], 0.0);
+    let ids: Vec<u64> = s.tabs.iter().map(|t| t.id).collect();
+    let (first, second) = (ids[0], ids[1]);
+    let mut rt = runtime(s);
+    rt.frame(1.0 / 60.0);
+    press(&mut rt, &format!("t-{first}/close"));
+    let left: Vec<u64> = rt.state.tabs.iter().map(|t| t.id).collect();
+    assert_eq!(left, vec![second]);
+    assert_eq!(rt.state.tabs.active().map(|t| t.id), Some(second), "the press that closed a tab didn't select it");
+}
+
+#[test]
 fn dialog_answer_opens_file() {
     let mut s = AppState::new();
     s.dialog_answer(Ok(Some(fixture("basic.md"))), 0.0);

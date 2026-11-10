@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rune::{Live, PointerPress, Tx};
-use rune_kit::shell::TabDragState;
 
 use crate::edit::{self, EditBuffer};
 use crate::find::Find;
@@ -76,7 +75,8 @@ pub struct AppState {
     pub tab_menu_at: Option<PointerPress>,
     pub toast: Option<Toast>,
     pub jobs: Vec<Job>,
-    pub drag: TabDragState,
+    /// The tab the strip last scrolled to, so a change of active tab reveals it once.
+    pub tab_revealed: Option<u64>,
     pub find: Find,
     /// Decoded images, bounded (§5.3).
     pub images: ImageCache,
@@ -126,7 +126,7 @@ impl AppState {
             tab_menu_at: None,
             toast: None,
             jobs: Vec::new(),
-            drag: TabDragState::default(),
+            tab_revealed: None,
             find: Find::new(),
             images: ImageCache::new(),
             now: 0.0,

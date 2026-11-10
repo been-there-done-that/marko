@@ -23,7 +23,6 @@ pub struct Tokens {
     pub fg: Color,
     pub fg2: Color,
     pub fg3: Color,
-    #[allow(dead_code)] // Hover and press states are not applied yet (NOTES.md).
     pub hover: Color,
     #[allow(dead_code)] // Hover and press states are not applied yet (NOTES.md).
     pub press: Color,
