@@ -1,6 +1,7 @@
 //! Rune Markdown: a light Markdown viewer.
 
 mod app;
+mod background;
 mod edit;
 mod find;
 mod fonts;
@@ -153,6 +154,15 @@ fn scene_conflict(s: &mut AppState) {
     }
 }
 
+/// The fixture picture behind the whole window, with frosted panels.
+fn scene_background(s: &mut AppState) {
+    scene_folder(s);
+    s.settings.background.path = Some(fixtures().join("bg.jpg"));
+    let mut tx = Tx::default();
+    background::tick(s, 0.0, &mut tx);
+    settle(s);
+}
+
 /// A named scene for `--snap`: a label and the setup that puts the app in that state.
 type Scene = (&'static str, fn(&mut AppState));
 
@@ -170,6 +180,9 @@ static SCENES: &[Scene] = &[
     ("deleted", scene_deleted),
     ("conflict", scene_conflict),
     ("code", scene_basic),
+    ("background", scene_background),
+    ("background-dark", |s: &mut AppState| { scene_background(s); s.settings.theme = "dark".into(); }),
+    ("background-sharp", |s: &mut AppState| { scene_background(s); s.settings.background.blur = 0.0; }),
     ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
@@ -256,6 +269,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.sync_preview_scroll(tx);
     ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
+    let bg_changed = background::tick(s, now, tx);
     let progress_changed = s.sync_doc_scroll();
     if let Some(watcher) = WATCHER.get() {
         let files: Vec<PathBuf> = s.tabs.iter().filter(|t| !t.untitled).map(|t| t.path.clone()).collect();
@@ -288,7 +302,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
             }
         }
     }
-    cleared || stats_changed || progress_changed
+    cleared || stats_changed || progress_changed || bg_changed
 }
 
 #[cfg(test)]

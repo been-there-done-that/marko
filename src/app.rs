@@ -53,6 +53,8 @@ pub enum Job {
     Save { tab: u64, path: PathBuf, text: String },
     /// Decode one local image (see `images::decode`).
     Image { key: PathBuf },
+    /// Decode the background picture at `path`.
+    Background { path: PathBuf },
 }
 
 pub struct AppState {
@@ -104,6 +106,8 @@ pub struct AppState {
     pub stats_last: Option<crate::stats::Sample>,
     /// Reading progress for the active document: its line and pill, and which viewport was restored.
     pub doc_scroll: Progress,
+    // Task B: the background picture.
+    pub bg: crate::background::BackgroundState,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -142,6 +146,7 @@ impl AppState {
             stats_text: rune::LiveText::new(""),
             stats_last: None,
             doc_scroll: Progress::new(),
+            bg: crate::background::BackgroundState::default(),
         }
     }
 
