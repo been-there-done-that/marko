@@ -233,6 +233,7 @@ fn main() {
     let app = rune::App::new(spec)
         .window_options(options)
         .on_window(|win| WINDOW.with(|w| *w.borrow_mut() = Some(win.clone())))
+        .on_quit(save_on_quit)
         .titlebar(rune::Titlebar::new(theme::BAR_H));
     #[cfg(target_os = "macos")]
     let app = app.standard_menus();
@@ -337,6 +338,25 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
         }
     }
     cleared || stats_changed || progress_changed || bg_changed
+}
+
+/// Writes the session one last time as the app quits, with the window's frame, so a change
+/// made in the last second (or a window moved without any other change) isn't lost. Runs on the
+/// UI thread and writes synchronously; the prefs file is replaced through a rename, so a save
+/// the saver thread makes at the same time can't leave it half-written.
+fn save_on_quit(s: &mut AppState, _: &mut Tx) {
+    let Some(persist) = PERSIST.get() else { return };
+    let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
+    if p.primary.is_none() {
+        return;
+    }
+    let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
+    if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
+        p.frame = Some(frame);
+    }
+    let mut snapshot = session::capture(s);
+    snapshot.frame = p.frame;
+    session::save(&mut Prefs::open(APP_ID), &snapshot);
 }
 
 #[cfg(test)]
