@@ -19,31 +19,23 @@ const SCROLL: &str = "tabs-scroll";
 /// A tab's height, corner radius and the space between tabs.
 const HEIGHT: f32 = 28.0;
 const RADIUS: f32 = 6.0;
-const TAB_GAP: f32 = 4.0;
+const TAB_GAP: f32 = 2.0;
 /// Horizontal padding inside a tab, and the gap between its icon, title and close slot.
-const PAD: f32 = 12.0;
+const PAD: f32 = 10.0;
 const GAP: f32 = 6.0;
 /// The file icon, the status and close slot, and the accent dot in that slot.
 const ICON: f32 = 14.0;
 const SLOT: f32 = 20.0;
 const DOT: f32 = 6.0;
 /// The narrowest and widest a tab is.
-const MIN_W: f32 = 72.0;
+const MIN_W: f32 = 56.0;
 const MAX_W: f32 = 240.0;
 /// The edge fade where the strip scrolls sideways.
 const FADE: f32 = 24.0;
-/// What a tab adds around its title: both paddings, the icon, both gaps and the slot.
-const CHROME_W: f32 = PAD * 2.0 + ICON + GAP * 2.0 + SLOT;
 
 /// The title's font: the kit's compact UI size at medium weight.
 fn title_font(k: &Kit) -> TextStyle {
     TextStyle { weight: k.ty.ui_medium.weight, ..k.ty.ui_compact }
-}
-
-/// The width a tab takes for `title`: its text plus the chrome, kept between [`MIN_W`] and
-/// [`MAX_W`]. A title wider than that is cut in the middle.
-pub fn tab_width(title: &str, k: &Kit) -> f32 {
-    (rune::text::measure(title, &[], title_font(k), None).0 + CHROME_W).clamp(MIN_W, MAX_W)
 }
 
 /// The strip for the titlebar's middle: the tabs in a scrolling row that fills the space given.
@@ -96,15 +88,37 @@ fn tab_el(tab: &Tab, title: &str, active: bool, k: &Kit, t: &Tokens) -> El {
         .group_opacity(if active && !unread { 1.0 } else { 0.0 }, 1.0)
         .instant_changes()
         .child(button);
-    let slot = el().size(SLOT, SLOT).child(dot).child(close);
+    // Only the active tab and a tab showing its dot keep a slot; elsewhere the close button
+    // floats over the end of the title on hover, so a quiet tab is just icon and name.
+    let reserve = active || unread;
+    let slot = reserve.then(|| el().size(SLOT, SLOT).child(dot).child(close));
+    let hover_close = (!reserve).then(|| {
+        let button = IconButton::new(k.glyph.close)
+            .control_size(ControlSize::Small)
+            .variant(IconButtonVariant::GhostMuted)
+            .label("Close tab")
+            .on_press_tx(move |s: &mut AppState, _: &mut Tx| s.request_close(id))
+            .build(k)
+            .key("close");
+        row()
+            .pin(None, Some((HEIGHT - SLOT) / 2.0), Some(4.0), None)
+            .size(SLOT, SLOT)
+            .center()
+            .radius(4.0)
+            .fill(t.bar)
+            .group_opacity(0.0, 1.0)
+            .instant_changes()
+            .child(button)
+    });
 
-    let label = text(title.to_owned()).key("label").font(title_font(k)).color(ink).grow(1.0).shrink().truncate_middle().a11y_hidden();
+    let label = text(title.to_owned()).key("label").font(title_font(k)).color(ink).shrink().truncate_middle().a11y_hidden();
     let pill = row()
         .key(format!("t-{id}"))
         .role("tab")
         .label(title.to_owned())
         .help(tab.path.display().to_string())
-        .w(tab_width(title, k))
+        .min_w(MIN_W)
+        .max_w(MAX_W)
         .h(HEIGHT)
         .radius(RADIUS)
         .px(PAD)
@@ -127,7 +141,8 @@ fn tab_el(tab: &Tab, title: &str, active: bool, k: &Kit, t: &Tokens) -> El {
         })
         .child(icon(&icons::FILE_TEXT, ICON).color(mark))
         .child(label)
-        .child(slot);
+        .children(slot)
+        .children(hover_close);
     if active {
         pill.fill(k.c.page).border(1.0, t.line)
     } else {
