@@ -1,6 +1,7 @@
 //! Rune Markdown: a light Markdown viewer.
 
 mod app;
+mod commands;
 mod edit;
 mod find;
 mod fonts;
@@ -48,7 +49,15 @@ static PERSIST: OnceLock<Mutex<Persist>> = OnceLock::new();
 /// Live reload, started once the window is ready. Its watched folders follow the tabs and roots.
 static WATCHER: OnceLock<Mutex<Watcher>> = OnceLock::new();
 
+thread_local! {
+    /// The window, for reading its place when the session is saved. UI thread only.
+    static WINDOW: std::cell::RefCell<Option<rune::WindowHandle>> = const { std::cell::RefCell::new(None) };
+}
+
 struct Persist {
+    /// The window's frame as last read, kept when the window can't report one (maximised, or a
+    /// platform that hides its position).
+    frame: Option<(i32, i32, u32, u32)>,
     /// Held by the one process that saves. None in the others, and in headless renders,
     /// which never reach `on_ready`.
     primary: Option<InstanceLock>,
@@ -132,6 +141,14 @@ fn scene_guard(s: &mut AppState) {
     }
 }
 
+/// The command palette over a document, filtered by "the".
+fn scene_palette(s: &mut AppState) {
+    scene_basic(s);
+    s.recent = vec![fixtures().join("basic.md")];
+    s.palette.show();
+    s.palette.query.replace_text("the");
+}
+
 fn scene_deleted(s: &mut AppState) {
     scene_basic(s);
     if let Some(path) = s.tabs.active().map(|t| t.path.clone()) {
@@ -163,6 +180,7 @@ static SCENES: &[Scene] = &[
     ("conflict", scene_conflict),
     ("code", scene_basic),
     ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
+    ("palette", scene_palette),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
 
@@ -177,6 +195,8 @@ fn main() {
     // Read before the window opens, so the first frame already has the reader's theme and fonts.
     settings::set_initial(session::settings_of(&session::load(&Prefs::open(APP_ID))));
 
+    // Reopen where the window was left, when the saved frame is sane.
+    let frame = session::load(&Prefs::open(APP_ID)).frame.and_then(session::usable_frame);
     let spec = AppSpec {
         min_size: Some((560.0, 400.0)),
         on_key: Some(ui::keys::on_key),
@@ -184,7 +204,15 @@ fn main() {
         scenes: SCENES,
         ..AppSpec::new("Markdown", (1100.0, 760.0), AppState::new, ui::view)
     };
-    let app = rune::App::new(spec).titlebar(rune::Titlebar::new(theme::BAR_H));
+    let mut options = rune::WindowOptions::default();
+    if let Some((position, size)) = frame {
+        options.position = Some(position);
+        options.physical_size = Some(size);
+    }
+    let app = rune::App::new(spec)
+        .window_options(options)
+        .on_window(|win| WINDOW.with(|w| *w.borrow_mut() = Some(win.clone())))
+        .titlebar(rune::Titlebar::new(theme::BAR_H));
     #[cfg(target_os = "macos")]
     let app = app.standard_menus();
     let mut ready_handle = Some(app.handle());
@@ -226,7 +254,7 @@ fn start(handle: AppHandle<AppState>) {
             }
         })
         .expect("the OS refused to start the session saver thread");
-    let _ = PERSIST.set(Mutex::new(Persist { primary, last: String::new(), debounce: SaveDebounce::default(), saves }));
+    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves }));
 
     let cli: Vec<PathBuf> = rune::extra_args().iter().map(PathBuf::from).collect();
     handle.update(move |s, _| {
@@ -262,7 +290,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     if let Some(persist) = PERSIST.get() {
         let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
         if p.primary.is_some() {
-            let snapshot = session::capture(s);
+            let mut snapshot = session::capture(s);
             let json = serde_json::to_string(&snapshot).unwrap_or_default();
             if json != p.last {
                 p.last = json;
@@ -271,6 +299,12 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
                 tx.wake_after(SAVE_WAKE);
             }
             if p.debounce.due(now) {
+                // The window is asked only now, when a save is about to go out.
+                let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
+                if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
+                    p.frame = Some(frame);
+                }
+                snapshot.frame = p.frame;
                 let _ = p.saves.send(snapshot);
             }
         }

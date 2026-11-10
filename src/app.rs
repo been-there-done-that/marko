@@ -104,6 +104,11 @@ pub struct AppState {
     pub stats_last: Option<crate::stats::Sample>,
     /// Reading progress for the active document: its line and pill, and which viewport was restored.
     pub doc_scroll: Progress,
+    // Task C: the Settings panel.
+    /// Whether the Settings panel is up.
+    pub settings_open: bool,
+    // Task E: the command palette.
+    pub palette: crate::commands::Palette,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -142,6 +147,8 @@ impl AppState {
             stats_text: rune::LiveText::new(""),
             stats_last: None,
             doc_scroll: Progress::new(),
+            settings_open: false,
+            palette: crate::commands::Palette::new(),
         }
     }
 

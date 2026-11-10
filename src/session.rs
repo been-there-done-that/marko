@@ -91,6 +91,34 @@ pub fn capture(s: &AppState) -> Session {
     }
 }
 
+/// The window's size floor in physical pixels when a saved frame is judged: below this the
+/// frame is a glitch (a minimised window reports a sliver), not a size the reader chose.
+const MIN_FRAME: (u32, u32) = (560, 400);
+/// The largest side and farthest corner accepted, past any real desktop.
+const MAX_SIDE: u32 = 16_384;
+const MAX_OFFSET: i32 = 32_768;
+
+/// The frame to save for a window at `p`, or None while it is maximised, minimised or full
+/// screen, which reopen as ordinary windows rather than at that size.
+pub fn frame_of(p: &rune::WindowPlacement) -> Option<(i32, i32, u32, u32)> {
+    if p.maximized || p.minimized || p.full_screen {
+        return None;
+    }
+    let (w, h) = p.content_size;
+    // `position` is the outer frame's corner, which is what `WindowOptions::position` takes.
+    let frame = (p.position.0, p.position.1, w, h);
+    usable_frame(frame).map(|_| frame)
+}
+
+/// A saved frame as the window's position and physical content size, or None when it is not a
+/// sane window: smaller than the minimum, larger than any desktop, or absurdly far away.
+pub fn usable_frame(frame: (i32, i32, u32, u32)) -> Option<((i32, i32), (u32, u32))> {
+    let (x, y, w, h) = frame;
+    let sized = (MIN_FRAME.0..=MAX_SIDE).contains(&w) && (MIN_FRAME.1..=MAX_SIDE).contains(&h);
+    let placed = x.abs() <= MAX_OFFSET && y.abs() <= MAX_OFFSET;
+    (sized && placed).then_some(((x, y), (w, h)))
+}
+
 /// Opens a saved session. Paths that no longer exist are skipped and dropped from Recent.
 /// Roots open before tabs, and the saved active tab is focused last.
 pub fn restore(s: &mut AppState, session: Session, now: f64) {

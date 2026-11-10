@@ -45,6 +45,33 @@ pub fn find_field_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
 }
 
+/// Up, Down, Enter and Escape typed into the palette's field: the field keeps them, so the
+/// window's `on_key` never sees them.
+pub fn palette_field_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
+    let rows = crate::commands::ranked(s, &s.palette.query.text);
+    match ev.key {
+        Key::Escape => {
+            s.palette.close();
+            true
+        }
+        Key::Down => {
+            s.palette.selected = (s.palette.selected + 1).min(rows.len().saturating_sub(1));
+            true
+        }
+        Key::Up => {
+            s.palette.selected = s.palette.selected.saturating_sub(1);
+            true
+        }
+        Key::Enter => {
+            if let Some(c) = rows.get(s.palette.selected) {
+                crate::commands::run(s, &c.id, tx);
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Saves tab `id`. A titled tab writes straight to its path. An untitled tab, or Save As, first
 /// asks the Save dialog where to write, and the tab takes the chosen path. `then_close` closes
 /// the tab once the write lands (the guard's Save). Returns false when the tab is not loaded.
@@ -94,6 +121,10 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         if s.menu.take().is_some() {
             return true;
         }
+        if s.palette.open {
+            s.palette.close();
+            return true;
+        }
         if s.find.open {
             s.find.close();
             return true;
@@ -106,6 +137,14 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         }
         s.find_step(!ev.mods.shift);
         reveal_current(s, tx);
+        return true;
+    }
+    if chord(ev, 'p', true) || chord(ev, 'k', false) {
+        if s.palette.open {
+            s.palette.close();
+        } else {
+            s.palette.show();
+        }
         return true;
     }
     if chord(ev, 'f', false) {
