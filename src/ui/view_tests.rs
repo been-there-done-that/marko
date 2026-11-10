@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use rune::{Env, FileDialogError, Key, KeyEvent, Mods, Runtime};
+use rune::{Env, FileDialogError, Key, KeyEvent, Mods, Runtime, Tx};
 
 use crate::app::{AppState, MenuKind};
 use crate::load::{load, DocState, LoadError};
@@ -326,4 +326,82 @@ fn close_others_keeps_dirty_tabs() {
     s.close_clean(|i, at| i != at, ids[2]);
     let left: Vec<u64> = s.tabs.iter().map(|t| t.id).collect();
     assert_eq!(left, vec![ids[0], ids[2]], "the dirty tab survives, the clean one closes");
+}
+
+/// A document long enough to scroll in the test window.
+fn long_doc(dir: &std::path::Path, name: &str) -> PathBuf {
+    let body: String = (0..120).map(|i| format!("Paragraph {i} runs on for a while so the column has real height.\n\n")).collect();
+    let p = dir.join(name);
+    std::fs::write(&p, format!("# {name}\n\n{body}")).unwrap();
+    p
+}
+
+/// The progress part of `main`'s `poll`: its change brings the view back to show the line and pill.
+fn poll_progress(s: &mut AppState, _now: f64, _tx: &mut Tx) -> bool {
+    s.sync_doc_scroll()
+}
+
+/// Lays out `n` frames with the progress sync polled, as the app does each frame.
+fn frames(rt: &mut Runtime<AppState>, n: usize) {
+    rt.poll = Some(poll_progress);
+    for _ in 0..n {
+        rt.frame(1.0 / 60.0);
+    }
+}
+
+/// The offset a tab's viewport last reported.
+fn offset_of(s: &AppState, id: u64) -> f32 {
+    s.tabs.iter().find(|t| t.id == id).map_or(-1.0, |t| t.scroll_at.get()[0])
+}
+
+#[test]
+fn switching_tabs_restores_scroll() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (long_doc(dir.path(), "a.md"), long_doc(dir.path(), "b.md"));
+    let mut s = AppState::new();
+    s.open_paths(&[a, b], 0.0);
+    crate::settle(&mut s);
+    let ids: Vec<u64> = s.tabs.iter().map(|t| t.id).collect();
+    let (ta, tb) = (ids[0], ids[1]);
+    let mut rt = runtime(s);
+    frames(&mut rt, 2);
+    press(&mut rt, &format!("t-{ta}"));
+    frames(&mut rt, 2);
+    let (x, y) = rt.find(&format!("doc-{ta}")).expect("the first document's viewport");
+    rt.wheel(x + 200.0, y + 200.0, -400.0);
+    frames(&mut rt, 6);
+    let scrolled = offset_of(&rt.state, ta);
+    assert!(scrolled > 100.0, "the first document scrolled, got {scrolled}");
+
+    press(&mut rt, &format!("t-{tb}"));
+    frames(&mut rt, 4);
+    assert_eq!(rt.state.tabs.iter().find(|t| t.id == ta).map(|t| t.scroll), Some(scrolled));
+
+    press(&mut rt, &format!("t-{ta}"));
+    frames(&mut rt, 6);
+    assert!((offset_of(&rt.state, ta) - scrolled).abs() < 1.0, "back at {}, left at {scrolled}", offset_of(&rt.state, ta));
+    assert!(rt.find(&format!("doc-{ta}")).is_some());
+}
+
+#[test]
+fn progress_hidden_for_short_doc() {
+    let dir = tempfile::tempdir().unwrap();
+    let short = dir.path().join("short.md");
+    std::fs::write(&short, "# Short\n\nOne line.\n").unwrap();
+    let mut s = AppState::new();
+    s.open_paths(&[short], 0.0);
+    crate::settle(&mut s);
+    let mut rt = runtime(s);
+    frames(&mut rt, 3);
+    assert!(rt.find("doc-progress").is_none(), "a document that fits shows no progress");
+    assert!(rt.find("doc-progress-line").is_none());
+
+    // A longer document in a new window: the pill and the line appear.
+    let mut s = AppState::new();
+    s.open_paths(&[long_doc(dir.path(), "long.md")], 0.0);
+    crate::settle(&mut s);
+    let mut rt = runtime(s);
+    frames(&mut rt, 3);
+    assert!(rt.find("doc-progress").is_some(), "a document that scrolls shows its progress");
+    assert!(rt.find("doc-progress-line").is_some());
 }

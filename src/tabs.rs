@@ -4,9 +4,12 @@ use std::path::{Path, PathBuf};
 
 use std::sync::Arc;
 
+use rune::Live;
+
 use crate::edit::EditBuffer;
 use crate::load::DocState;
 use crate::paths::{canonical, display_titles};
+use crate::progress;
 
 /// How many closed paths `reopen_closed` can bring back.
 const CLOSED_CAP: usize = 20;
@@ -15,8 +18,11 @@ pub struct Tab {
     pub id: u64,
     pub path: PathBuf,
     pub doc: DocState,
-    #[allow(dead_code)] // Per-tab scroll memory is not restored yet (NOTES.md).
+    /// The document's scroll offset, kept while the tab is shown and restored when it is shown
+    /// again. Saved with the session.
     pub scroll: f32,
+    /// The viewport's latest report: offset, maximum, and viewport width (`progress`).
+    pub scroll_at: Live<[f32; 4]>,
     /// Edit mode's buffer, set once the tab is first edited (Task 6 reads it).
     pub edit: Option<EditBuffer>,
     /// A New tab that has never been saved; its path does not exist on disk yet.
@@ -75,7 +81,7 @@ impl TabSet {
         let at = self.active.map_or(self.tabs.len(), |a| a + 1);
         let id = self.next_id;
         self.next_id += 1;
-        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, edit, untitled, changed: false, deleted: false, hash: None, conflict: false });
+        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, scroll_at: progress::tab_live(), edit, untitled, changed: false, deleted: false, hash: None, conflict: false });
         self.set_active(Some(at));
         id
     }

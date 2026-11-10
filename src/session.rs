@@ -19,6 +19,9 @@ const QUIET_SECS: f64 = 1.0;
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Session {
     pub tabs: Vec<PathBuf>,
+    /// Each tab's scroll offset, parallel to `tabs`. Missing in sessions saved before it existed.
+    #[serde(default)]
+    pub scroll: Vec<f32>,
     pub active: Option<usize>,
     pub roots: Vec<PathBuf>,
     pub sidebar_visible: bool,
@@ -34,6 +37,7 @@ impl Default for Session {
     fn default() -> Self {
         Self {
             tabs: Vec::new(),
+            scroll: Vec::new(),
             active: None,
             roots: Vec::new(),
             sidebar_visible: true,
@@ -69,6 +73,7 @@ pub fn capture(s: &AppState) -> Session {
     let active_id = s.tabs.active().map(|t| t.id);
     Session {
         tabs: saved.iter().map(|t| t.path.clone()).collect(),
+        scroll: saved.iter().map(|t| t.scroll).collect(),
         active: active_id.and_then(|id| saved.iter().position(|t| t.id == id)),
         roots: s.sidebar.roots.iter().map(|r| r.path.clone()).collect(),
         sidebar_visible: s.sidebar.visible,
@@ -89,12 +94,12 @@ pub fn restore(s: &mut AppState, session: Session, now: f64) {
         .filter(|p| p.is_file())
         .map(|p| canonical(p));
     let roots: Vec<PathBuf> = session.roots.iter().filter(|p| p.is_dir()).cloned().collect();
-    let tabs: Vec<PathBuf> = session
-        .tabs
-        .iter()
-        .filter(|p| p.is_file() && is_markdown(p))
-        .cloned()
-        .collect();
+    let mut tabs: Vec<PathBuf> = Vec::new();
+    let mut scrolls: Vec<(PathBuf, f32)> = Vec::new();
+    for (i, p) in session.tabs.iter().enumerate().filter(|(_, p)| p.is_file() && is_markdown(p)) {
+        tabs.push(p.clone());
+        scrolls.push((canonical(p), session.scroll.get(i).copied().unwrap_or(0.0).max(0.0)));
+    }
     let recent: Vec<PathBuf> = session.recent.iter().filter(|p| p.exists()).cloned().collect();
 
     s.sidebar.visible = session.sidebar_visible;
@@ -104,6 +109,13 @@ pub fn restore(s: &mut AppState, session: Session, now: f64) {
 
     s.open_paths(&roots, now);
     s.open_paths(&tabs, now);
+    // A tab's offset is applied once its document is shown (`progress`), so it is only recorded here.
+    for (path, offset) in scrolls {
+        let id = s.tabs.iter().find(|t| t.path == path).map(|t| t.id);
+        if let Some(tab) = id.and_then(|id| s.tabs.get_mut(id)) {
+            tab.scroll = offset;
+        }
+    }
     if let Some(key) = active_path {
         let id = s.tabs.iter().find(|t| t.path == key).map(|t| t.id);
         if let Some(id) = id {

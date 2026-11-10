@@ -8,6 +8,7 @@ mod images;
 mod load;
 mod open;
 mod paths;
+mod progress;
 mod session;
 mod sidebar;
 mod stats;
@@ -210,6 +211,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
     s.sync_preview_scroll(tx);
     let stats_changed = stats::tick(s, now, tx);
+    let progress_changed = s.sync_doc_scroll();
     if let Some(watcher) = WATCHER.get() {
         let files: Vec<PathBuf> = s.tabs.iter().filter(|t| !t.untitled).map(|t| t.path.clone()).collect();
         let roots: Vec<PathBuf> = s.sidebar.roots.iter().map(|r| r.path.clone()).collect();
@@ -241,7 +243,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
             }
         }
     }
-    cleared || stats_changed
+    cleared || stats_changed || progress_changed
 }
 
 #[cfg(test)]

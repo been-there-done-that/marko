@@ -11,6 +11,7 @@ use crate::find::Find;
 use crate::images::ImageCache;
 use crate::load::{DocState, LoadError, LARGE_BYTES};
 use crate::paths::canonical;
+use crate::progress::Progress;
 use crate::sidebar::{build_tree, readme_or_first, Sidebar};
 use crate::tabs::TabSet;
 use crate::watch::{content_hash, FileEvent};
@@ -100,6 +101,8 @@ pub struct AppState {
     pub stats: crate::stats::Stats,
     /// The last reading, which the next CPU percentage is taken from.
     pub stats_last: Option<crate::stats::Sample>,
+    /// Reading progress for the active document: its line and pill, and which viewport was restored.
+    pub doc_scroll: Progress,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -134,6 +137,7 @@ impl AppState {
             stats_on: true,
             stats: crate::stats::Stats::default(),
             stats_last: None,
+            doc_scroll: Progress::new(),
         }
     }
 
