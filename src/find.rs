@@ -78,6 +78,8 @@ impl AppState {
     /// Shows the find bar, re-running the query on the active tab.
     pub fn open_find(&mut self) {
         self.find.open = true;
+        // Setting `focused` on a mounted field's TextEdit is how Rune moves keyboard focus into it.
+        self.find.query.focused = true;
         self.sync_find();
     }
 

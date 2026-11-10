@@ -191,3 +191,13 @@ fn find_follows_the_active_tab() {
     assert_eq!(rt.state.find.for_tab, Some(first));
     assert_eq!(rt.state.find.label(), format!("1 of {}", rt.state.find.count()));
 }
+
+#[test]
+fn cmd_f_focuses_the_field_so_typing_searches() {
+    let mut rt = runtime(AppState::new());
+    loaded_basic(&mut rt);
+    send(&mut rt, cmd('f'));
+    send(&mut rt, KeyEvent { key: Key::Text("table".into()), mods: Mods::default() });
+    assert_eq!(rt.state.find.query.text, "table");
+    assert!(rt.state.find.count() > 0, "typing into the focused field runs find");
+}
