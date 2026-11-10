@@ -5,7 +5,7 @@ use std::path::Path;
 use rune::{Color, El, FileDialogOptions, Icon, PointerPress, Tx, el, icon};
 use rune_kit::{Kit, Menu, MenuItem, context_menu};
 
-use crate::app::{AppState, Appearance, MenuKind};
+use crate::app::{AppState, MenuKind};
 use crate::icons;
 use crate::load::DocState;
 use crate::theme;
@@ -77,7 +77,7 @@ pub(super) fn pick_recent(s: &mut AppState, path: &Path) {
 
 /// The Open menu under its button. Its entries are pushed into `layers` when it is open.
 pub fn open_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El {
-    let t = theme::tokens(k.dark);
+    let t = &theme::look(&s.settings, &s.user_themes, k.dark).tokens;
     let mut menu = Menu::new("menu-open")
         .trigger(trigger)
         .open(s.menu == Some(MenuKind::Open))
@@ -184,7 +184,7 @@ fn tab_path(s: &AppState, id: u64) -> Option<String> {
 
 /// The right-click menu of tab `id`, open at `point`. Its entry is pushed into `layers`.
 pub fn tab_menu(s: &AppState, k: &Kit, id: u64, point: PointerPress, layers: &mut Vec<El>) {
-    let t = theme::tokens(k.dark);
+    let t = &theme::look(&s.settings, &s.user_themes, k.dark).tokens;
     let path = tab_path(s, id);
     let has_others = s.tabs.iter().count() > 1;
     let menu = context_menu("menu-tab", el(), Some(point))
@@ -253,19 +253,20 @@ pub(super) fn close_tab(s: &mut AppState) {
     }
 }
 
-fn appearance_item(s: &AppState, label: &'static str, want: Appearance) -> MenuItem {
-    MenuItem::new(label).checked(s.appearance == want).on_select(move |s: &mut AppState| {
-        s.appearance = want;
+/// A Theme entry of the More menu: picks theme `id` (`auto` follows the system).
+fn theme_item(s: &AppState, label: String, id: String) -> MenuItem {
+    MenuItem::new(label).checked(s.settings.theme == id).on_select(move |s: &mut AppState| {
+        s.settings.theme = id.clone();
         s.menu = None;
     })
 }
 
 /// The More menu under its button. Its entries are pushed into `layers` when it is open.
 pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El {
-    let t = theme::tokens(k.dark);
+    let t = &theme::look(&s.settings, &s.user_themes, k.dark).tokens;
     let has_tab = s.tabs.active().is_some();
     let has_source = matches!(s.tabs.active().map(|tab| &tab.doc), Some(DocState::Ready { .. }));
-    Menu::new("menu-more")
+    let mut menu = Menu::new("menu-more")
         .trigger(trigger)
         .open(s.menu == Some(MenuKind::More))
         .min_width(MENU_MIN_W)
@@ -349,11 +350,13 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
                 }),
         )
         .separator()
-        .group_label("Appearance")
-        .item(appearance_item(s, "System", Appearance::System).lead(lead("menu-appearance-system", None, t.fg2)))
-        .item(appearance_item(s, "Light", Appearance::Light).lead(lead("menu-appearance-light", None, t.fg2)))
-        .item(appearance_item(s, "Dark", Appearance::Dark).lead(lead("menu-appearance-dark", None, t.fg2)))
-        .separator()
+        .group_label("Theme")
+        .item(theme_item(s, "Follow System".into(), crate::settings::AUTO_THEME.into()).lead(lead("menu-theme-auto", None, t.fg2)));
+    for def in crate::themes::builtin().into_iter().chain(s.user_themes.iter().cloned()) {
+        let key = format!("menu-theme-{}", def.id.replace(':', "-"));
+        menu = menu.item(theme_item(s, def.name, def.id).lead(lead(key, None, t.fg2)));
+    }
+    menu.separator()
         .item(
             MenuItem::new("Close Tab")
                 .lead(lead("menu-close-tab", Some(&icons::X), t.fg2))

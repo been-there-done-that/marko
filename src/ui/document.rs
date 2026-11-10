@@ -14,7 +14,7 @@ use crate::icons;
 use crate::images::{Resolved, resolve};
 use crate::paths::is_markdown;
 use crate::progress::{self, doc_key};
-use crate::theme::{self, READ_W, READ_W_WIDE, Tokens};
+use crate::theme::{Look, self, READ_W, READ_W_WIDE, Tokens};
 
 /// Side padding of the reading column, top and bottom padding (§4.7).
 const SIDE_PAD: f32 = 40.0;
@@ -22,8 +22,8 @@ const TOP_PAD: f32 = 40.0;
 const BOTTOM_PAD: f32 = 96.0;
 
 /// The document area for the active tab. `Loading` shows nothing for its one frame.
-pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
-    let t = theme::tokens(dark);
+pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
+    let t = &look.tokens;
     let Some(tab) = s.tabs.active() else { return el().key("doc") };
     let ready = matches!(tab.doc, DocState::Ready { .. });
     let content = match &tab.doc {
@@ -40,7 +40,7 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
             if *lossy {
                 c = c.child(banner("doc-banner-lossy", "Some characters couldn't be read", k, t));
             }
-            let md = markdown(s, k, dark, src, &tab.path, find_highlights(s, tab.id));
+            let md = markdown(s, k, look, src, &tab.path, find_highlights(s, tab.id));
             // A deleted file keeps its last text, dimmed to 60%.
             c.child(if tab.deleted { md.layer_opacity(0.6) } else { md })
         }
@@ -70,12 +70,12 @@ fn with_progress(scroll: El, s: &AppState, k: &Kit, t: &Tokens) -> El {
 /// failed) shows the broken-image glyph and its alt text. The Edit view's preview renders its
 /// buffer's text through this too, with no find highlights, since the matches were found in the
 /// saved source.
-pub fn markdown(s: &AppState, k: &Kit, dark: bool, src: &str, path: &Path, highlights: Vec<(Vec<Range<usize>>, Highlight)>) -> El {
+pub fn markdown(s: &AppState, k: &Kit, look: &'static Look, src: &str, path: &Path, highlights: Vec<(Vec<Range<usize>>, Highlight)>) -> El {
     let doc = path.to_path_buf();
     let link_doc = doc.clone();
     let hits = s.images.hits();
     Markdown::new(strip_frontmatter(src))
-        .style(theme::markdown_style(dark, s.zoom))
+        .style(theme::markdown_style(look, &s.settings, s.zoom))
         .scroll_wide(true)
         .selectable(true)
         .tasks_read_only()
@@ -85,16 +85,16 @@ pub fn markdown(s: &AppState, k: &Kit, dark: bool, src: &str, path: &Path, highl
             // TODO(upstream): "Remote image · Load" needs a placeholder the Markdown image hook can draw.
             Resolved::Remote(_) | Resolved::Unsupported => None,
         })
-        .code_frame(move |card, f| code_header(card, f, dark))
+        .code_frame(move |card, f| code_header(card, f, look))
         .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &link_doc, url, tx))
         .link_help(|href: &str| Some(href.to_string()))
         .build(k)
 }
 
 /// A code block with a header row: its language on the left, a Copy button on the right.
-fn code_header(card: El, f: &CodeFrame<'_>, dark: bool) -> El {
-    let k = theme::kit(dark);
-    let t = theme::tokens(dark);
+fn code_header(card: El, f: &CodeFrame<'_>, look: &'static Look) -> El {
+    let k = &look.kit;
+    let t = &look.tokens;
     let code = f.source.to_string();
     let copy = Button::new("Copy")
         .on_press_tx(move |_: &mut AppState, tx: &mut Tx| tx.copy(code.clone()))

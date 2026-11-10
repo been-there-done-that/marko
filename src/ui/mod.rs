@@ -16,26 +16,17 @@ use std::path::PathBuf;
 use rune::{Cx, El, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit};
 
-use crate::app::{AppState, Appearance};
+use crate::app::AppState;
 use crate::icons;
-use crate::theme::{self, Tokens};
-
-/// Light or dark for this frame: the app's own setting, or the system's when it follows it.
-fn is_dark(s: &AppState, system_dark: bool) -> bool {
-    match s.appearance {
-        Appearance::System => system_dark,
-        Appearance::Light => false,
-        Appearance::Dark => true,
-    }
-}
+use crate::theme::{Look, self, Tokens};
 
 pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
-    let dark = is_dark(s, cx.system_dark());
+    let look = theme::look(&s.settings, &s.user_themes, cx.system_dark());
     let chrome = cx.chrome_insets();
-    let k = theme::kit(dark);
-    let t = theme::tokens(dark);
+    let k = &look.kit;
+    let t = &look.tokens;
     let mut layers = Vec::new();
-    let bar = titlebar::bar(s, k, dark, chrome, &mut layers);
+    let bar = titlebar::bar(s, k, look, chrome, &mut layers);
     if s.toast.is_some() {
         layers.push(toast(s, k, t));
     }
@@ -49,27 +40,27 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     let base = col().key("shell").w_full().h_full().fill(k.c.page)
         .child(bar)
         .child(el().key("divider").w_full().h(1.0).fill(t.line))
-        .child(body(s, dark, k));
+        .child(body(s, look, k));
     rune_kit::root(base, layers)
 }
 
 /// The sidebar (when shown) beside the document or the empty state. Dropped files land here.
-fn body(s: &AppState, dark: bool, k: &Kit) -> El {
+fn body(s: &AppState, look: &'static Look, k: &Kit) -> El {
     let show_side = s.sidebar.visible && (!s.tabs.is_empty() || !s.sidebar.roots.is_empty());
     let main = if s.tabs.is_empty() {
-        empty::view(s, dark)
+        empty::view(s, look)
     } else if editor::shows(s) {
-        editor::view(s, k, dark)
+        editor::view(s, k, look)
     } else {
-        document::view(s, k, dark)
+        document::view(s, k, look)
     };
-    let main = match editor::conflict_banner(s, k, dark) {
+    let main = match editor::conflict_banner(s, k, look) {
         Some(banner) => col().key("main").grow(1.0).min_h(0.0).child(banner).child(main),
         None => main,
     };
     let mut row_el = row().key("body").w_full().grow(1.0).min_h(0.0);
     if show_side {
-        row_el = row_el.child(sidebar_view::view(s, dark)).child(el().w(1.0).h_full().fill(theme::tokens(dark).line));
+        row_el = row_el.child(sidebar_view::view(s, look)).child(el().w(1.0).h_full().fill(look.tokens.line));
     }
     row_el
         .child(main)

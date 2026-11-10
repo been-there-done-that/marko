@@ -11,10 +11,12 @@ mod open;
 mod paths;
 mod progress;
 mod session;
+mod settings;
 mod sidebar;
 mod stats;
 mod tabs;
 mod theme;
+mod themes;
 mod ui;
 mod watch;
 mod worker;
@@ -159,6 +161,8 @@ static SCENES: &[Scene] = &[
     ("deleted", scene_deleted),
     ("conflict", scene_conflict),
     ("code", scene_basic),
+    ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
+    ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
 
 fn main() {
@@ -169,6 +173,8 @@ fn main() {
         gpu_env::apply();
     }
     rune::prewarm_gpu();
+    // Read before the window opens, so the first frame already has the reader's theme and fonts.
+    settings::set_initial(session::settings_of(&session::load(&Prefs::open(APP_ID))));
 
     let spec = AppSpec {
         min_size: Some((560.0, 400.0)),
@@ -199,6 +205,15 @@ fn start(handle: AppHandle<AppState>) {
     }
 
     let mut prefs = Prefs::open(APP_ID);
+    if let Some(dir) = prefs.path().and_then(|p| p.parent()).map(|d| d.join("themes")) {
+        let themes_handle = handle.clone();
+        let _ = thread::Builder::new().name("themes".into()).spawn(move || {
+            let (themes, _errors) = themes::load_dir(&dir);
+            if !themes.is_empty() {
+                themes_handle.update(move |s, _| s.user_themes = themes);
+            }
+        });
+    }
     let saved = session::load(&prefs);
     let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
     let (saves, queued) = mpsc::channel::<Session>();

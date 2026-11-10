@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use rune::prefs::Prefs;
 
 use super::*;
-use crate::app::{AppState, Appearance};
+use crate::app::AppState;
+use crate::settings::Startup;
 use crate::paths::canonical;
 
 fn write(dir: &Path, name: &str) -> PathBuf {
@@ -27,7 +28,8 @@ fn capture_then_restore_round_trips() {
     s.tabs.activate(first);
     s.zoom = 1.25;
     s.wide = true;
-    s.appearance = Appearance::Dark;
+    s.settings.theme = "nordic".into();
+    s.settings.text_size = 18.0;
     s.sidebar.visible = false;
 
     let prefs_path = dir.path().join("state").join("prefs.json");
@@ -43,7 +45,8 @@ fn capture_then_restore_round_trips() {
     assert_eq!(r.sidebar.roots[0].path, canonical(&folder));
     assert_eq!(r.zoom, 1.25);
     assert!(r.wide);
-    assert_eq!(r.appearance, Appearance::Dark);
+    assert_eq!(r.settings.theme, "nordic");
+    assert_eq!(r.settings.text_size, 18.0);
     assert!(!r.sidebar.visible);
     assert_eq!(r.recent, s.recent);
 }
@@ -84,7 +87,7 @@ fn corrupt_session_falls_back_to_default() {
     assert!(s.tabs.is_empty());
     assert!(s.sidebar.visible);
     assert_eq!(s.zoom, 1.0);
-    assert_eq!(s.appearance, Appearance::System);
+    assert_eq!(s.settings.theme, crate::settings::AUTO_THEME);
 }
 
 #[test]
@@ -156,4 +159,23 @@ fn old_session_without_scroll_loads() {
     restore(&mut r, session, 0.0);
     assert_eq!(r.tabs.iter().count(), 1);
     assert_eq!(r.tabs.active().map(|t| t.scroll), Some(0.0));
+}
+
+#[test]
+fn old_session_keeps_its_appearance_as_the_theme() {
+    let session: Session = serde_json::from_str(r#"{"tabs":[],"active":null,"roots":[],"sidebar_visible":true,"zoom":1.0,"wide":false,"appearance":"dark","recent":[],"frame":null}"#).unwrap();
+    assert_eq!(settings_of(&session).theme, "dark");
+}
+
+#[test]
+fn empty_startup_skips_tabs_but_keeps_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = write(dir.path(), "a.md");
+    let mut s = AppState::new();
+    s.open_paths(std::slice::from_ref(&a), 0.0);
+    s.settings.startup = Startup::Empty;
+    let mut r = AppState::new();
+    restore(&mut r, capture(&s), 0.0);
+    assert!(r.tabs.is_empty());
+    assert_eq!(r.settings.startup, Startup::Empty);
 }

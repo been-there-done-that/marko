@@ -32,13 +32,6 @@ pub enum Mode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Appearance {
-    System,
-    Light,
-    Dark,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuKind {
     Open,
     More,
@@ -68,7 +61,10 @@ pub struct AppState {
     pub recent: Vec<PathBuf>,
     pub zoom: f32,
     pub wide: bool,
-    pub appearance: Appearance,
+    /// Theme, fonts, background and the rest of the reader's choices (Settings panel).
+    pub settings: crate::settings::Settings,
+    /// Themes read from the config folder's `themes/`, loaded after launch.
+    pub user_themes: Vec<crate::themes::ThemeDef>,
     pub drop_hover: bool,
     pub menu: Option<MenuKind>,
     /// Where the tab context menu's secondary press landed, in window points.
@@ -120,7 +116,8 @@ impl AppState {
             recent: Vec::new(),
             zoom: 1.0,
             wide: false,
-            appearance: Appearance::System,
+            settings: crate::settings::initial(),
+            user_themes: Vec::new(),
             drop_hover: false,
             menu: None,
             tab_menu_at: None,

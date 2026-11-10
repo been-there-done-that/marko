@@ -5,7 +5,7 @@ use rune_kit::Kit;
 
 use crate::app::AppState;
 use crate::icons;
-use crate::theme::{self, Tokens};
+use crate::theme::{Look, self, Tokens};
 use crate::ui::menus::{open_file, open_folder, pick_recent};
 use crate::ui::titlebar::chord;
 
@@ -45,9 +45,9 @@ fn recent_card(s: &AppState, k: &Kit, t: &Tokens) -> El {
 }
 
 /// The empty state, centred in the body. Its sidebar is hidden by the caller when there are no roots.
-pub fn view(s: &AppState, dark: bool) -> El {
-    let k = theme::kit(dark);
-    let t = theme::tokens(dark);
+pub fn view(s: &AppState, look: &'static Look) -> El {
+    let k = &look.kit;
+    let t = &look.tokens;
     let badge = el().size(56.0, 56.0).radius(14.0).fill(t.accent_soft).center()
         .child(icon(&icons::FILE_TEXT, 26.0).color(t.accent));
     let title = TextStyle { size: 17.0, weight: 650.0, ..k.ty.body };

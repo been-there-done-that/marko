@@ -8,7 +8,7 @@ use crate::app::{AppState, Mode};
 use crate::edit::EditBuffer;
 use crate::load::DocState;
 use crate::tabs::Tab;
-use crate::theme;
+use crate::theme::Look;
 use crate::ui::document;
 
 /// Padding around the source text area.
@@ -60,11 +60,11 @@ pub fn enter(s: &mut AppState) -> bool {
 
 /// The notice for the active tab when its file changed on disk under unsaved edits. Reload drops
 /// the edits and loads the file; Keep Mine keeps them, and the next save overwrites the file.
-pub fn conflict_banner(s: &AppState, k: &Kit, dark: bool) -> Option<El> {
+pub fn conflict_banner(s: &AppState, k: &Kit, look: &'static Look) -> Option<El> {
     if !s.tabs.active().is_some_and(|t| t.conflict) {
         return None;
     }
-    let t = theme::tokens(dark);
+    let t = &look.tokens;
     let reload = Button::new("Reload")
         .on_press(|s: &mut AppState| s.reload_active_discarding())
         .build(k)
@@ -98,8 +98,8 @@ pub fn toggle(s: &mut AppState) -> bool {
 }
 
 /// The split view for the active tab: the source on the left, its live preview on the right.
-pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
-    let t = theme::tokens(dark);
+pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
+    let t = &look.tokens;
     let Some(tab) = s.tabs.active() else { return el().key("editor-split") };
     let fallback;
     let edit = match &tab.edit {
@@ -122,7 +122,7 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
             at.set([p.offset[1], p.max[1]]);
         })
         .child(source_area);
-    let md = document::markdown(s, k, dark, &edit.text, &tab.path, Vec::new());
+    let md = document::markdown(s, k, look, &edit.text, &tab.path, Vec::new());
     let preview_at = s.preview_at.clone();
     let preview = document::reading("preview", s, md).on_scroll_offset(move |p: ScrollPos| {
         preview_at.set([p.offset[1], p.max[1]]);

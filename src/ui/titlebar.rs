@@ -8,7 +8,7 @@ use rune_kit::{IconButton, IconButtonVariant, Kit};
 use crate::app::{AppState, Mode, MenuKind};
 use crate::icons;
 use crate::stats;
-use crate::theme::{self, Tokens};
+use crate::theme::{Look, self, Tokens};
 use crate::ui::{editor, menus, tab_strip};
 
 /// Shortcut text for a key on the current platform: `⌘O` on macOS, `Ctrl+O` elsewhere.
@@ -61,8 +61,8 @@ fn readout(s: &AppState, k: &Kit, t: &Tokens) -> El {
 }
 
 /// The titlebar band for this frame. Menus it opens are pushed into `layers`.
-pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut Vec<El>) -> El {
-    let t = theme::tokens(dark);
+pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, layers: &mut Vec<El>) -> El {
+    let t = &look.tokens;
 
     let sidebar = ghost_button("Sidebar", format!("Toggle sidebar  {}", chord(false, "B")), &icons::PANEL_LEFT)
         .on_press(|s: &mut AppState| s.sidebar.visible = !s.sidebar.visible)

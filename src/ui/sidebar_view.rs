@@ -14,7 +14,7 @@ use rune_kit::{Kit, TreeItem, TreeRow, TreeStyle};
 use crate::app::AppState;
 use crate::icons;
 use crate::tabs::Tab;
-use crate::theme::{self, Tokens};
+use crate::theme::{Look, self, Tokens};
 
 /// One line of the sidebar list.
 #[derive(Clone, Copy)]
@@ -130,9 +130,9 @@ fn node_row(s: &AppState, k: &Kit, style: &TreeStyle, i: usize, j: usize) -> El 
 
 /// The sidebar column at the left of the body. It is shown beside the document, or alone when
 /// there are roots but no tab.
-pub fn view(s: &AppState, dark: bool) -> El {
-    let k: &'static Kit = theme::kit(dark);
-    let t: &'static Tokens = theme::tokens(dark);
+pub fn view(s: &AppState, look: &'static Look) -> El {
+    let k: &'static Kit = &look.kit;
+    let t: &'static Tokens = &look.tokens;
     let style = Rc::new(TreeStyle::from_kit(k));
     let list = Rc::new(items(s));
     let count = list.len();

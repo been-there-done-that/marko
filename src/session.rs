@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use rune::prefs::Prefs;
 use serde::{Deserialize, Serialize};
 
-use crate::app::{AppState, Appearance};
+use crate::app::AppState;
+use crate::settings::{Settings, Startup};
 use crate::paths::{canonical, is_markdown};
 use crate::tabs::Tab;
 
@@ -30,6 +31,10 @@ pub struct Session {
     pub appearance: String,
     pub recent: Vec<PathBuf>,
     pub frame: Option<(i32, i32, u32, u32)>,
+    /// The reader's settings. Missing in sessions saved before it existed; `appearance` then
+    /// picks the theme.
+    #[serde(default)]
+    pub settings: Option<Settings>,
 }
 
 impl Default for Session {
@@ -43,26 +48,26 @@ impl Default for Session {
             sidebar_visible: true,
             zoom: 1.0,
             wide: false,
-            appearance: appearance_name(Appearance::System).into(),
+            appearance: "system".into(),
             recent: Vec::new(),
             frame: None,
+            settings: None,
         }
     }
 }
 
-fn appearance_name(a: Appearance) -> &'static str {
-    match a {
-        Appearance::System => "system",
-        Appearance::Light => "light",
-        Appearance::Dark => "dark",
-    }
-}
-
-fn appearance_from(name: &str) -> Appearance {
-    match name {
-        "light" => Appearance::Light,
-        "dark" => Appearance::Dark,
-        _ => Appearance::System,
+/// The settings a saved session asks for. An old session without them keeps its light or dark
+/// choice as the theme.
+pub fn settings_of(session: &Session) -> Settings {
+    match &session.settings {
+        Some(s) => s.clone().clamped(),
+        None => {
+            let mut s = Settings::default();
+            if session.appearance == "light" || session.appearance == "dark" {
+                s.theme = session.appearance.clone();
+            }
+            s
+        }
     }
 }
 
@@ -79,9 +84,10 @@ pub fn capture(s: &AppState) -> Session {
         sidebar_visible: s.sidebar.visible,
         zoom: s.zoom,
         wide: s.wide,
-        appearance: appearance_name(s.appearance).into(),
+        appearance: "system".into(),
         recent: s.recent.clone(),
         frame: None,
+        settings: Some(s.settings.clone()),
     }
 }
 
@@ -105,7 +111,11 @@ pub fn restore(s: &mut AppState, session: Session, now: f64) {
     s.sidebar.visible = session.sidebar_visible;
     s.zoom = if session.zoom > 0.0 { session.zoom } else { 1.0 };
     s.wide = session.wide;
-    s.appearance = appearance_from(&session.appearance);
+    s.settings = settings_of(&session);
+    if s.settings.startup == Startup::Empty {
+        s.recent = recent;
+        return;
+    }
 
     s.open_paths(&roots, now);
     s.open_paths(&tabs, now);
