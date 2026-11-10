@@ -4,6 +4,7 @@ use rune::{Key, KeyEvent, Tx};
 
 use crate::app::{AppState, Job};
 use crate::load::DocState;
+use crate::ui::editor;
 use crate::ui::menus::{close_tab, copy_path, open_file_dialog, open_folder_dialog};
 
 /// ⌘ (Ctrl off macOS) plus `c`, with ⇧ held exactly when `shift` says.
@@ -34,6 +35,9 @@ pub fn on_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if chord(ev, 'b', false) {
         s.sidebar.visible = !s.sidebar.visible;
         return true;
+    }
+    if chord(ev, 'e', false) {
+        return editor::toggle(s);
     }
     if chord(ev, 'w', false) && s.tabs.active().is_some() {
         close_tab(s);

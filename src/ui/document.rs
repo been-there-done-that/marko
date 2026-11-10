@@ -32,21 +32,31 @@ pub fn view(s: &AppState, k: &Kit, dark: bool) -> El {
             if *lossy {
                 c = c.child(banner("doc-banner-lossy", "Some characters couldn't be read", k, t));
             }
-            let dir = tab.path.parent().map(Path::to_path_buf).unwrap_or_default();
-            let md = Markdown::new(strip_frontmatter(src))
-                .style(theme::markdown_style(dark, s.zoom))
-                .scroll_wide(true)
-                .selectable(true)
-                .tasks_read_only()
-                .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &dir, url, tx))
-                .build(k);
-            c.child(md)
+            c.child(markdown(s, k, dark, src, &tab.path))
         }
     };
+    reading("doc", s, content)
+}
+
+/// The rendered Markdown for `src`, with its frontmatter hidden. Links resolve against the
+/// folder of `path`. The Edit view's preview renders its buffer's text through this too.
+pub fn markdown(s: &AppState, k: &Kit, dark: bool, src: &str, path: &Path) -> El {
+    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    Markdown::new(strip_frontmatter(src))
+        .style(theme::markdown_style(dark, s.zoom))
+        .scroll_wide(true)
+        .selectable(true)
+        .tasks_read_only()
+        .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &dir, url, tx))
+        .build(k)
+}
+
+/// A scrolling reading column keyed `key`, centred, holding `content`.
+pub fn reading(key: &str, s: &AppState, content: El) -> El {
     let width = if s.wide { READ_W_WIDE } else { READ_W };
     let column = col().w_full().max_w(width + 2.0 * SIDE_PAD).px(SIDE_PAD).pt(TOP_PAD).pb(BOTTOM_PAD).child(content);
     let centred = row().w_full().justify_center().child(column);
-    col().key("doc").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(centred)
+    col().key(key).w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(centred)
 }
 
 /// A link in the document. Web and mail links open in the browser; a relative Markdown path opens

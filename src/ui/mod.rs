@@ -2,6 +2,7 @@
 //! layered over them.
 
 mod document;
+mod editor;
 mod empty;
 pub mod keys;
 mod menus;
@@ -49,7 +50,13 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
 /// The sidebar (when shown) beside the document or the empty state. Dropped files land here.
 fn body(s: &AppState, dark: bool, k: &Kit) -> El {
     let show_side = s.sidebar.visible && (!s.tabs.is_empty() || !s.sidebar.roots.is_empty());
-    let main = if s.tabs.is_empty() { empty::view(s, dark) } else { document::view(s, k, dark) };
+    let main = if s.tabs.is_empty() {
+        empty::view(s, dark)
+    } else if editor::shows(s) {
+        editor::view(s, k, dark)
+    } else {
+        document::view(s, k, dark)
+    };
     let mut row_el = row().key("body").w_full().grow(1.0).min_h(0.0);
     if show_side {
         row_el = row_el.child(sidebar_view::view(s, dark)).child(el().w(1.0).h_full().fill(theme::tokens(dark).line));
