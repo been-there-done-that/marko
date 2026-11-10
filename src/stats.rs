@@ -1,5 +1,5 @@
 //! This process's memory and CPU, sampled once a second for the titlebar readout. The numbers
-//! come from `procwatch`, which reads the process's own counters.
+//! come from `/proc/self` on Linux and `procwatch` elsewhere.
 
 use std::time::Duration;
 
@@ -64,14 +64,41 @@ pub fn tick(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
         s.stats_last = None;
         return false;
     }
-    // `snapshot` is the reading that carries CPU time at this procwatch rev; it walks the
-    // threads, which once a second is cheap.
-    let reading = procwatch::snapshot().map(|p| (p.resident, p.cpu_s));
+    let reading = read_self();
     let changed = apply(s, now, reading);
     if let Some(prev) = s.stats_last {
         tx.wake_after(Duration::from_secs_f64((prev.at + EVERY - now).max(0.0)));
     }
     changed
+}
+
+/// `(resident bytes, CPU seconds)` for this process. On Linux it reads `/proc/self`, since the
+/// pinned `procwatch` rev reads nothing off macOS. Both files are kernel-generated and tiny.
+#[cfg(target_os = "linux")]
+pub fn read_self() -> Option<(u64, f64)> {
+    let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    // SAFETY: sysconf only reads a configuration value.
+    let (page, tick) = unsafe { (libc::sysconf(libc::_SC_PAGESIZE), libc::sysconf(libc::_SC_CLK_TCK)) };
+    parse_proc(&statm, &stat, page.max(1) as u64, tick.max(1) as f64)
+}
+
+/// The macOS (and other) reading through `procwatch`.
+#[cfg(not(target_os = "linux"))]
+pub fn read_self() -> Option<(u64, f64)> {
+    procwatch::snapshot().map(|p| (p.resident, p.cpu_s))
+}
+
+/// Parses `/proc/self/statm` (resident pages are its second field) and `/proc/self/stat`
+/// (utime and stime are fields 14 and 15; the name in field 2 may hold spaces, so count from
+/// the last `)`).
+pub fn parse_proc(statm: &str, stat: &str, page: u64, tick: f64) -> Option<(u64, f64)> {
+    let pages: u64 = statm.split_whitespace().nth(1)?.parse().ok()?;
+    let rest = &stat[stat.rfind(')')? + 1..];
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let utime: f64 = f.get(11)?.parse().ok()?;
+    let stime: f64 = f.get(12)?.parse().ok()?;
+    Some((pages * page, (utime + stime) / tick))
 }
 
 #[cfg(test)]

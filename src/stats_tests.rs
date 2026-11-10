@@ -64,3 +64,19 @@ fn stats_hidden_when_toggled_off() {
     rt.frame(1.0 / 60.0);
     assert!(rt.find("stats").is_none());
 }
+
+#[test]
+fn parses_proc_files() {
+    let statm = "12345 2560 300 1 0 900 0\n";
+    let stat = "4242 (rune markdown (x)) S 1 2 3 4 5 6 7 8 9 10 150 50 0 0 20 0 9 0 100\n";
+    let (rss, cpu) = parse_proc(statm, stat, 4096, 100.0).unwrap();
+    assert_eq!(rss, 2560 * 4096);
+    assert!((cpu - 2.0).abs() < 1e-9, "150 + 50 ticks at 100 Hz is 2 s, got {cpu}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn reads_this_process_on_linux() {
+    let (rss, _) = read_self().expect("/proc/self is readable");
+    assert!(rss > 1 << 20, "a test process uses over 1 MB");
+}
