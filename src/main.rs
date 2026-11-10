@@ -12,6 +12,7 @@ mod sidebar;
 mod tabs;
 mod theme;
 mod ui;
+mod worker;
 
 use rune::AppSpec;
 
