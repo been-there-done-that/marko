@@ -1,5 +1,6 @@
 //! App state: open tabs, sidebar roots, view settings, and the work queued for the worker.
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -55,6 +56,15 @@ pub enum Job {
     Image { key: PathBuf },
     /// Decode the background picture at `path`.
     Background { path: PathBuf },
+    /// Fetch and decode one web image. Queued only when the reader allowed web images
+    /// (`AppState::want_web`).
+    WebImage { url: String },
+}
+
+/// The picture shown full size over the window.
+pub struct Lightbox {
+    pub image: rune::Image,
+    pub alt: String,
 }
 
 pub struct AppState {
@@ -117,6 +127,14 @@ pub struct AppState {
     pub settings_tab: usize,
     pub body_combo: rune_kit::ComboboxState,
     pub code_combo: rune_kit::ComboboxState,
+    // Task D (images): the full-size view, web image policy and the editor preview's image sync.
+    pub lightbox: Option<Lightbox>,
+    /// Tabs whose web images the reader allowed with Load (while the setting is Ask).
+    pub web_allowed: HashSet<u64>,
+    /// The web image addresses each tab's document or edit buffer names.
+    pub web_urls: HashMap<u64, Vec<String>>,
+    /// The tab and text hash the editor preview's images were last queued for.
+    pub edit_images_seen: Option<(u64, u64)>,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -161,6 +179,10 @@ impl AppState {
             settings_tab: 0,
             body_combo: rune_kit::ComboboxState::default(),
             code_combo: rune_kit::ComboboxState::default(),
+            lightbox: None,
+            web_allowed: HashSet::new(),
+            web_urls: HashMap::new(),
+            edit_images_seen: None,
         }
     }
 
@@ -316,6 +338,7 @@ impl AppState {
                     self.jobs.push(Job::Scan { root: path });
                     return;
                 }
+                self.refresh_image(&path);
                 for id in self.tab_ids_for(&path) {
                     self.jobs.push(Job::Load { tab: id, path: path.clone() });
                 }
@@ -343,10 +366,86 @@ impl AppState {
         }
     }
 
+    /// A cached local image changed on disk: decodes the file again. The old picture stays on
+    /// screen until the new one lands, and stays if the new one fails to decode.
+    fn refresh_image(&mut self, path: &Path) {
+        if self.images.has(path) && !self.images.pending(path) {
+            self.images.mark_pending(path.to_path_buf());
+            self.jobs.push(Job::Image { key: path.to_path_buf() });
+        }
+    }
+
+    /// Whether `tab`'s web images may be fetched: the setting is Always, or the reader pressed Load.
+    pub fn web_allowed_for(&self, tab: u64) -> bool {
+        self.settings.web_images == crate::settings::WebImages::Always || self.web_allowed.contains(&tab)
+    }
+
+    /// Queues a fetch for each of `urls` not cached or pending, when `tab` may fetch. Nothing
+    /// leaves the machine otherwise.
+    pub fn want_web(&mut self, tab: u64, urls: &[String]) {
+        if !self.web_allowed_for(tab) {
+            return;
+        }
+        for url in urls {
+            let key = crate::images::web_key(url);
+            if !self.images.has(&key) && !self.images.pending(&key) {
+                self.images.mark_pending(key);
+                self.jobs.push(Job::WebImage { url: url.clone() });
+            }
+        }
+    }
+
+    /// A tab's document names these web images. Remembered for the banner, fetched if allowed.
+    pub fn doc_web_images(&mut self, tab: u64, urls: Vec<String>) {
+        if urls.is_empty() {
+            self.web_urls.remove(&tab);
+            return;
+        }
+        self.want_web(tab, &urls);
+        self.web_urls.insert(tab, urls);
+    }
+
+    /// The Load button: allows `tab`'s web images and fetches them.
+    pub fn load_web_images(&mut self, tab: u64) {
+        self.web_allowed.insert(tab);
+        let urls = self.web_urls.get(&tab).cloned().unwrap_or_default();
+        self.want_web(tab, &urls);
+    }
+
+    /// How many web images `tab` shows only as alt text because loading them is not allowed yet.
+    pub fn blocked_web_images(&self, tab: u64) -> usize {
+        if self.web_allowed_for(tab) { 0 } else { self.web_urls.get(&tab).map_or(0, Vec::len) }
+    }
+
+    /// Queues the images the active tab's edit buffer names, once per change of its text, so the
+    /// Edit preview shows pictures as they are typed. Called each frame from `poll`.
+    pub fn sync_edit_images(&mut self) {
+        if !matches!(self.mode, Mode::Edit) {
+            return;
+        }
+        let Some(tab) = self.tabs.active() else { return };
+        let Some(buf) = tab.edit.as_ref() else { return };
+        let seen = (tab.id, content_hash(&buf.text.text));
+        if self.edit_images_seen == Some(seen) {
+            return;
+        }
+        let (id, path) = (tab.id, tab.path.clone());
+        let srcs = crate::images::image_srcs(crate::load::strip_frontmatter(&buf.text.text));
+        self.edit_images_seen = Some(seen);
+        let (local, mut web) = crate::images::split_srcs(&path, &srcs);
+        web.sort();
+        web.dedup();
+        self.want_images(local);
+        self.doc_web_images(id, web);
+    }
+
     /// A worker finished decoding an image. A failed decode stays pending, so it is not retried.
     pub fn image_ready(&mut self, key: PathBuf, image: Option<(rune::Image, usize)>) {
-        if let Some((img, bytes)) = image {
-            self.images.insert(key, img, bytes);
+        match image {
+            Some((img, bytes)) => self.images.insert(key, img, bytes),
+            // A refresh that failed (a file caught mid-write) keeps the old picture and may be tried again.
+            None if self.images.has(&key) => self.images.clear_pending(&key),
+            None => {}
         }
     }
 

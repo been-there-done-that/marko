@@ -6,6 +6,7 @@ pub(crate) mod editor;
 mod empty;
 mod find_bar;
 pub mod keys;
+mod lightbox;
 pub(crate) mod menus;
 mod palette;
 mod settings_view;
@@ -40,6 +41,7 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     }
     guard(s, k, &mut layers);
     palette::layers(s, k, t, &mut layers);
+    lightbox::layer(s, &mut layers);
     if s.drop_hover {
         layers.push(drop_overlay(k, t));
     }

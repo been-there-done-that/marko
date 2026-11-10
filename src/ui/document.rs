@@ -11,7 +11,8 @@ use rune_kit::{Button, Highlight, Kit, Markdown};
 use crate::app::AppState;
 use crate::load::{DocState, LoadError, strip_frontmatter};
 use crate::icons;
-use crate::images::{Resolved, resolve};
+use crate::images::{Resolved, resolve, web_key};
+use crate::ui::lightbox;
 use crate::paths::is_markdown;
 use crate::progress::{self, doc_key};
 use crate::theme::{Look, self, READ_W, READ_W_WIDE, Tokens};
@@ -39,6 +40,10 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
             }
             if *lossy {
                 c = c.child(banner("doc-banner-lossy", "Some characters couldn't be read", k, t));
+            }
+            let blocked = s.blocked_web_images(tab.id);
+            if blocked > 0 {
+                c = c.child(web_banner(tab.id, blocked, k, t));
             }
             let md = markdown(s, k, look, src, &tab.path, find_highlights(s, tab.id));
             // A deleted file keeps its last text, dimmed to 60%.
@@ -82,9 +87,11 @@ pub fn markdown(s: &AppState, k: &Kit, look: &'static Look, src: &str, path: &Pa
         .highlights(highlights)
         .images(move |src: &str| match resolve(&doc, src) {
             Resolved::Local(p) => hits.get(&p).cloned(),
-            // TODO(upstream): "Remote image · Load" needs a placeholder the Markdown image hook can draw.
-            Resolved::Remote(_) | Resolved::Unsupported => None,
+            // A web image not fetched (not allowed, or not arrived) is absent, so it shows its alt text.
+            Resolved::Remote(url) => hits.get(&web_key(&url)).cloned(),
+            Resolved::Unsupported => None,
         })
+        .image_frame(lightbox::open_on_press)
         .code_frame(move |card, f| code_header(card, f, look))
         .on_link_tx(move |s: &mut AppState, url: &str, tx: &mut Tx| route_link(s, &link_doc, url, tx))
         .link_help(|href: &str| Some(href.to_string()))
@@ -172,6 +179,20 @@ fn deleted_banner(k: &Kit, t: &Tokens) -> El {
         .child(text("This file was deleted").font(k.ty.small).color(t.fg2))
         .child(el().grow(1.0))
         .child(close)
+}
+
+/// Above a document whose web images are not allowed to load: what it holds, and a Load button.
+/// Loading an image tells its server the file was opened, so the reader decides.
+fn web_banner(tab: u64, count: usize, k: &Kit, t: &Tokens) -> El {
+    let noun = if count == 1 { "web image" } else { "web images" };
+    let load = Button::new("Load")
+        .on_press(move |s: &mut AppState| s.load_web_images(tab))
+        .build(k)
+        .key("doc-web-load");
+    row().key("doc-banner-web").w_full().mb(16.0).px(12.0).py(8.0).radius(6.0).fill(t.code_bg).border(1.0, t.code_line).center_y()
+        .child(text(format!("This document has {count} {noun}")).font(k.ty.small).color(t.fg2))
+        .child(el().grow(1.0))
+        .child(load)
 }
 
 fn banner(key: &str, msg: &str, k: &Kit, t: &Tokens) -> El {
