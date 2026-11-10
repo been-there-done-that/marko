@@ -99,11 +99,16 @@ pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, lay
     if s.stats_on && s.stats_last.is_some() {
         bar = bar.trailing(readout(s, k, t));
     }
+    if s.has_background() {
+        // The default band is opaque; over a picture it is the theme's translucent bar colour.
+        bar = bar.fill(t.bar);
+    }
     bar.trailing(mode(s, k, t))
         .trailing(divider(t))
         .trailing(find)
         .trailing(more)
         .build(k)
+        .backdrop_blur(super::frost(s))
 }
 
 #[cfg(test)]

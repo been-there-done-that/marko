@@ -13,11 +13,12 @@ mod titlebar;
 
 use std::path::PathBuf;
 
-use rune::{Cx, El, TextStyle, Tx, col, el, icon, row, text};
+use rune::{Cx, El, SurfaceFit, TextStyle, Tx, col, el, icon, row, text};
 use rune_kit::{Button, ButtonVariant, Dialog, Kit};
 
 use crate::app::AppState;
 use crate::icons;
+use crate::settings::Fit;
 use crate::theme::{Look, self, Tokens};
 
 pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
@@ -37,11 +38,36 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     if s.drop_hover {
         layers.push(drop_overlay(k, t));
     }
-    let base = col().key("shell").w_full().h_full().fill(k.c.page)
+    // With a background picture the shell has no fill of its own: each panel carries one
+    // translucent layer, so the picture is covered once and never twice.
+    let mut shell = col().key("shell").w_full().h_full();
+    if !s.has_background() {
+        shell = shell.fill(k.c.page);
+    }
+    let shell = shell
         .child(bar)
         .child(el().key("divider").w_full().h(1.0).fill(t.line))
         .child(body(s, look, k));
-    rune_kit::root(base, layers)
+    rune_kit::root(with_background(s, look, shell), layers)
+}
+
+/// `base` over the background picture, when one is ready: a solid page colour (so a faded
+/// picture fades into the theme, not into the window clear colour), the picture, then `base`.
+fn with_background(s: &AppState, look: &'static Look, base: El) -> El {
+    let Some(img) = &s.bg.image else { return base };
+    let fit = match s.settings.background.fit {
+        Fit::Cover => SurfaceFit::Fill,
+        Fit::Contain => SurfaceFit::Fit,
+    };
+    let pin_all = || el().pin(Some(0.0), Some(0.0), Some(0.0), Some(0.0));
+    let solid = pin_all().key("bg-solid").fill(look.kit.c.page.alpha(1.0));
+    let picture = pin_all().key("bg-image").pixels_fit(img.pixels(), fit).opacity(s.settings.background.image_opacity);
+    el().key("bg-stack").w_full().h_full().child(solid).child(picture).child(base)
+}
+
+/// The frosted-glass blur for a panel over the picture: 0 (off) when there is no picture.
+pub(crate) fn frost(s: &AppState) -> f32 {
+    if s.bg.image.is_some() { s.settings.background.blur } else { 0.0 }
 }
 
 /// The sidebar (when shown) beside the document or the empty state. Dropped files land here.
@@ -58,9 +84,15 @@ fn body(s: &AppState, look: &'static Look, k: &Kit) -> El {
         Some(banner) => col().key("main").grow(1.0).min_h(0.0).child(banner).child(main),
         None => main,
     };
+    // Over a picture the reading surface is one translucent, optionally frosted panel.
+    let main = if s.has_background() {
+        col().key("main-panel").grow(1.0).min_h(0.0).fill(k.c.page).backdrop_blur(frost(s)).child(main)
+    } else {
+        main
+    };
     let mut row_el = row().key("body").w_full().grow(1.0).min_h(0.0);
     if show_side {
-        row_el = row_el.child(sidebar_view::view(s, look)).child(el().w(1.0).h_full().fill(look.tokens.line));
+        row_el = row_el.child(sidebar_view::view(s, look).backdrop_blur(frost(s))).child(el().w(1.0).h_full().fill(look.tokens.line));
     }
     row_el
         .child(main)
