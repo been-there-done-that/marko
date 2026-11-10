@@ -112,7 +112,7 @@ fn deleted_banner(k: &Kit, t: &Tokens) -> El {
     let close = Button::new("Close Tab")
         .on_press(|s: &mut AppState| {
             if let Some(id) = s.tabs.active().map(|tab| tab.id) {
-                s.tabs.close(id);
+                s.request_close(id);
             }
         })
         .build(k)

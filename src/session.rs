@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{AppState, Appearance};
 use crate::paths::{canonical, is_markdown};
+use crate::tabs::Tab;
 
 /// The prefs key the session is stored under.
 const KEY: &str = "session";
@@ -63,10 +64,12 @@ fn appearance_from(name: &str) -> Appearance {
 
 /// Reads the window's state into a session. `frame` is left empty for the caller to fill.
 pub fn capture(s: &AppState) -> Session {
+    // An untitled tab has no file yet, so it is not restored.
+    let saved: Vec<&Tab> = s.tabs.iter().filter(|t| !t.untitled).collect();
     let active_id = s.tabs.active().map(|t| t.id);
     Session {
-        tabs: s.tabs.iter().map(|t| t.path.clone()).collect(),
-        active: active_id.and_then(|id| s.tabs.iter().position(|t| t.id == id)),
+        tabs: saved.iter().map(|t| t.path.clone()).collect(),
+        active: active_id.and_then(|id| saved.iter().position(|t| t.id == id)),
         roots: s.sidebar.roots.iter().map(|r| r.path.clone()).collect(),
         sidebar_visible: s.sidebar.visible,
         zoom: s.zoom,

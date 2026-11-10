@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use rune::{Env, FileDialogError, Runtime};
+use rune::{Env, FileDialogError, Key, KeyEvent, Mods, Runtime};
 
 use crate::app::{AppState, MenuKind};
-use crate::load::{DocState, LoadError};
+use crate::load::{load, DocState, LoadError};
 use crate::ui::view;
 
 fn fixture(name: &str) -> PathBuf {
@@ -229,4 +229,101 @@ fn try_again_requeues_load() {
     press(&mut rt, "doc-retry");
     assert!(rt.state.jobs.iter().any(|j| matches!(j, crate::app::Job::Load { tab, .. } if *tab == id)));
     assert!(matches!(rt.state.tabs.active().map(|t| &t.doc), Some(DocState::Loading)));
+}
+
+/// Cmd (Ctrl off macOS) plus `c`, as winit reports it.
+fn cmd_key(c: char) -> KeyEvent {
+    let mods = Mods { cmd: true, ctrl: !cfg!(target_os = "macos"), ..Mods::default() };
+    KeyEvent { key: Key::Command(c), mods }
+}
+
+/// A window with `basic.md` open, loaded and edited, so its tab is dirty.
+fn dirty_runtime() -> Runtime<AppState> {
+    let mut s = AppState::new();
+    s.open_paths(&[fixture("basic.md")], 0.0);
+    let id = s.tabs.active().map(|t| t.id).expect("a tab is open");
+    s.loaded(id, load(&fixture("basic.md")));
+    crate::ui::editor::enter(&mut s);
+    s.tabs.active_mut().and_then(|t| t.edit.as_mut()).expect("a buffer").text.replace_text("changed\n");
+    let mut rt = runtime(s);
+    rt.on_key = Some(crate::ui::keys::on_key);
+    rt.frame(1.0 / 60.0);
+    rt
+}
+
+#[test]
+fn close_dirty_tab_asks() {
+    let mut rt = dirty_runtime();
+    rt.key(cmd_key('w'));
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state.tabs.iter().count(), 1, "the tab stays open");
+    assert!(rt.state.guard.is_some());
+    assert!(rt.find("guard-save").is_some());
+    assert!(rt.find("guard-discard").is_some());
+    assert!(rt.find("guard-cancel").is_some());
+}
+
+#[test]
+fn guard_discard_closes() {
+    let mut rt = dirty_runtime();
+    rt.key(cmd_key('w'));
+    rt.frame(1.0 / 60.0);
+    press(&mut rt, "guard-discard");
+    assert!(rt.state.tabs.is_empty());
+    assert!(rt.state.guard.is_none());
+    assert!(rt.find("guard-save").is_none());
+}
+
+#[test]
+fn guard_cancel_keeps_tab() {
+    let mut rt = dirty_runtime();
+    rt.key(cmd_key('w'));
+    rt.frame(1.0 / 60.0);
+    press(&mut rt, "guard-cancel");
+    assert_eq!(rt.state.tabs.iter().count(), 1);
+    assert!(rt.state.guard.is_none());
+    assert!(rt.find("guard-save").is_none());
+}
+
+#[test]
+fn guard_save_writes_then_closes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("b.md");
+    std::fs::write(&path, "old\n").unwrap();
+    let mut s = AppState::new();
+    s.open_paths(std::slice::from_ref(&path), 0.0);
+    let id = s.tabs.active().map(|t| t.id).expect("a tab is open");
+    s.loaded(id, load(&path));
+    crate::ui::editor::enter(&mut s);
+    s.tabs.active_mut().and_then(|t| t.edit.as_mut()).expect("a buffer").text.replace_text("new\n");
+    let mut rt = runtime(s);
+    rt.on_key = Some(crate::ui::keys::on_key);
+    rt.key(cmd_key('w'));
+    rt.frame(1.0 / 60.0);
+    rt.state.jobs.clear();
+    press(&mut rt, "guard-save");
+    assert_eq!(rt.state.tabs.iter().count(), 1, "the tab waits for its write");
+    let jobs: Vec<crate::app::Job> = rt.state.jobs.drain(..).collect();
+    for job in jobs {
+        crate::worker::run_job(job).apply(&mut rt.state);
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+    assert!(rt.state.tabs.is_empty());
+    assert!(rt.state.guard.is_none());
+}
+
+#[test]
+fn close_others_keeps_dirty_tabs() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths: Vec<PathBuf> = ["a.md", "b.md", "c.md"].iter().map(|n| { let p = dir.path().join(n); std::fs::write(&p, "# x\n").unwrap(); p }).collect();
+    let mut s = AppState::new();
+    s.open_paths(&paths, 0.0);
+    for job in std::mem::take(&mut s.jobs) { crate::worker::run_job(job).apply(&mut s); }
+    let ids: Vec<u64> = s.tabs.iter().map(|t| t.id).collect();
+    let mut buf = crate::edit::EditBuffer::from_src("# x\n");
+    buf.text = rune::TextEdit::new("# changed\n");
+    s.tabs.get_mut(ids[0]).unwrap().edit = Some(buf);
+    s.close_clean(|i, at| i != at, ids[2]);
+    let left: Vec<u64> = s.tabs.iter().map(|t| t.id).collect();
+    assert_eq!(left, vec![ids[0], ids[2]], "the dirty tab survives, the clean one closes");
 }

@@ -15,7 +15,7 @@ pub enum LoadError { NotFound, Permission, Binary, TooLarge { bytes: u64 }, Io(S
 
 const MB: u64 = 1024 * 1024;
 const MAX_BYTES: u64 = 50 * MB;
-const LARGE_BYTES: u64 = 5 * MB;
+pub(crate) const LARGE_BYTES: u64 = 5 * MB;
 const BINARY_PROBE: usize = 8192;
 
 /// Blocking; called only from workers.
