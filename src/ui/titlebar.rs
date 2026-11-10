@@ -5,10 +5,10 @@ use rune::{ChromeInsets, El, el, icon, row, text};
 use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabReorder, TabStrip, WindowTitlebar};
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
-use crate::app::{AppState, MenuKind};
+use crate::app::{AppState, Mode, MenuKind};
 use crate::icons;
 use crate::theme::{self, Tokens};
-use crate::ui::menus;
+use crate::ui::{editor, menus};
 
 /// Shortcut text for a key on the current platform: `⌘O` on macOS, `Ctrl+O` elsewhere.
 pub fn chord(shift: bool, key: &str) -> String {
@@ -33,9 +33,10 @@ fn divider(t: &Tokens) -> El {
     el().w(1.0).h(16.0).mx(4.0).fill(t.line_strong)
 }
 
-/// The Preview | Edit segments. Edit is inert in phase 1: it has no press handler.
-fn mode(k: &Kit, t: &Tokens, preview_active: bool) -> El {
-    let seg = |key: &str, label: &str, i: &'static rune::Icon, active: bool, live: bool| {
+/// The Preview | Edit segments. Each switches the document's mode.
+fn mode(s: &AppState, k: &Kit, t: &Tokens) -> El {
+    let editing = matches!(s.mode, Mode::Edit);
+    let seg = |key: &str, label: &str, i: &'static rune::Icon, active: bool| {
         let ink = if active { t.fg } else { t.fg2 };
         let mut e = row().key(key).h(22.0).px(8.0).gap(4.0).center_y().radius(4.0)
             .child(icon(i, 14.0).color(if active { t.accent } else { ink }))
@@ -43,14 +44,13 @@ fn mode(k: &Kit, t: &Tokens, preview_active: bool) -> El {
         if active {
             e = e.fill(k.c.page).border(1.0, t.line);
         }
-        if !live {
-            e = e.layer_opacity(0.5).help("Edit arrives in phase 2");
-        }
         e
     };
     row().key("mode").h(26.0).padding(1.0).gap(1.0).center_y().radius(6.0).border(1.0, t.line)
-        .child(seg("mode-preview", "Preview", &icons::EYE, preview_active, true))
-        .child(seg("mode-edit", "Edit", &icons::PENCIL, false, false))
+        .child(seg("mode-preview", "Preview", &icons::EYE, !editing).on_press(|s: &mut AppState| editor::preview(s)))
+        .child(seg("mode-edit", "Edit", &icons::PENCIL, editing).on_press(|s: &mut AppState| {
+            editor::enter(s);
+        }))
 }
 
 /// The titlebar band for this frame. Menus it opens are pushed into `layers`.
@@ -69,10 +69,11 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
 
     let active_id = s.tabs.active().map(|tab| tab.id);
     let active = active_id.map(|id| id.to_string());
-    // A background tab changed on disk shows an accent dot until it is activated.
+    // A background tab changed on disk, or with unsaved edits, shows an accent dot. A changed
+    // background tab's dot clears when it is activated; a dirty tab keeps its dot until saved.
     let items = s.tabs.iter().zip(s.tabs.titles()).map(|(tab, title)| {
-        let dot = (tab.changed && Some(tab.id) != active_id).then_some(TabItemStatus::Unread);
-        TabItem::new(tab.id.to_string(), title).icon(&icons::FILE_TEXT).status(dot)
+        let unread = (tab.changed && Some(tab.id) != active_id) || editor::dirty(tab);
+        TabItem::new(tab.id.to_string(), title).icon(&icons::FILE_TEXT).status(unread.then_some(TabItemStatus::Unread))
     });
     let strip = TabStrip::new("tabs", TabOrientation::Horizontal)
         .tabs(items)
@@ -115,7 +116,7 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
         .leading(open)
         .leading(divider(t))
         .tabs(strip)
-        .trailing(mode(k, t, true))
+        .trailing(mode(s, k, t))
         .trailing(divider(t))
         .trailing(find)
         .trailing(more)
