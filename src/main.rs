@@ -180,6 +180,18 @@ fn scene_background(s: &mut AppState) {
     settle(s);
 }
 
+/// The Settings panel on tab `tab`, over a document, with a font list filled in by hand.
+fn scene_settings(s: &mut AppState, tab: usize) {
+    scene_basic(s);
+    s.settings_open = true;
+    s.settings_tab = tab;
+    s.fonts = fonts::FontList {
+        all: ["DejaVu Sans", "DejaVu Sans Mono", "Inter", "Noto Serif"].map(String::from).to_vec(),
+        mono: ["DejaVu Sans Mono", "Noto Sans Mono"].map(String::from).to_vec(),
+        loaded: true,
+    };
+}
+
 /// A named scene for `--snap`: a label and the setup that puts the app in that state.
 type Scene = (&'static str, fn(&mut AppState));
 
@@ -200,6 +212,10 @@ static SCENES: &[Scene] = &[
     ("background", scene_background),
     ("background-dark", |s: &mut AppState| { scene_background(s); s.settings.theme = "dark".into(); }),
     ("background-sharp", |s: &mut AppState| { scene_background(s); s.settings.background.blur = 0.0; }),
+    ("settings-appearance", |s: &mut AppState| scene_settings(s, 0)),
+    ("settings-text", |s: &mut AppState| scene_settings(s, 1)),
+    ("settings-background", |s: &mut AppState| scene_settings(s, 2)),
+    ("settings-general", |s: &mut AppState| scene_settings(s, 3)),
     ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
     ("palette", scene_palette),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),

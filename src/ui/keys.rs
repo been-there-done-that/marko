@@ -125,6 +125,10 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
             s.palette.close();
             return true;
         }
+        if s.settings_open {
+            s.settings_open = false;
+            return true;
+        }
         if s.find.open {
             s.find.close();
             return true;
@@ -145,6 +149,11 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         } else {
             s.palette.show();
         }
+        return true;
+    }
+    if chord(ev, ',', false) {
+        s.settings_open = !s.settings_open;
+        s.menu = None;
         return true;
     }
     if chord(ev, 'f', false) {

@@ -113,6 +113,10 @@ pub struct AppState {
     pub settings_open: bool,
     // Task E: the command palette.
     pub palette: crate::commands::Palette,
+    /// Appearance, Text, Background or General (0 to 3).
+    pub settings_tab: usize,
+    pub body_combo: rune_kit::ComboboxState,
+    pub code_combo: rune_kit::ComboboxState,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -154,6 +158,9 @@ impl AppState {
             bg: crate::background::BackgroundState::default(),
             settings_open: false,
             palette: crate::commands::Palette::new(),
+            settings_tab: 0,
+            body_combo: rune_kit::ComboboxState::default(),
+            code_combo: rune_kit::ComboboxState::default(),
         }
     }
 

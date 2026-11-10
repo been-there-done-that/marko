@@ -272,6 +272,16 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
         .min_width(MENU_MIN_W)
         .on_close(|s: &mut AppState| s.menu = None)
         .item(
+            MenuItem::new("Settings…")
+                .lead(lead("menu-settings", None, t.fg2))
+                .shortcut(chord(false, ","))
+                .on_select(|s: &mut AppState| {
+                    s.menu = None;
+                    s.settings_open = true;
+                }),
+        )
+        .separator()
+        .item(
             MenuItem::new("Reload from Disk")
                 .lead(lead("menu-reload", None, t.fg2))
                 .shortcut(chord(false, "R"))

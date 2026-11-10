@@ -54,7 +54,7 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
 /// percentage pill at its bottom right. Both are in the tree only while the document scrolls.
 fn with_progress(scroll: El, s: &AppState, k: &Kit, t: &Tokens) -> El {
     let area = col().key("doc-area").w_full().grow(1.0).min_h(0.0).child(scroll);
-    if !s.doc_scroll.shown {
+    if !s.doc_scroll.shown || !s.settings.show_progress {
         return area;
     }
     let line = el().key("doc-progress-line").pin(Some(0.0), Some(0.0), Some(0.0), None).h(progress::LINE_H).fill(t.accent)
@@ -144,7 +144,7 @@ fn route_link(s: &mut AppState, doc: &Path, url: &str, tx: &mut Tx) {
 
 /// Opens a file in the system's default app. `tx.open_url` refuses `file:` links, so this runs
 /// the platform opener on its own thread, and the UI thread never waits on it.
-fn open_with_os(path: &Path) {
+pub(crate) fn open_with_os(path: &Path) {
     let path = path.to_path_buf();
     let opener = if cfg!(target_os = "macos") {
         "open"
