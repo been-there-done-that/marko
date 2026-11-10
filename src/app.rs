@@ -8,6 +8,7 @@ use rune_kit::shell::TabDragState;
 
 use crate::edit::{self, EditBuffer};
 use crate::find::Find;
+use crate::images::ImageCache;
 use crate::load::{DocState, LoadError, LARGE_BYTES};
 use crate::paths::canonical;
 use crate::sidebar::{build_tree, readme_or_first, Sidebar};
@@ -57,6 +58,8 @@ pub enum Job {
     Scan { root: PathBuf },
     /// Writes `text` to `path` atomically. The result comes back as `JobResult::Saved`.
     Save { tab: u64, path: PathBuf, text: String },
+    /// Decode one local image (see `images::decode`).
+    Image { key: PathBuf },
 }
 
 pub struct AppState {
@@ -74,6 +77,8 @@ pub struct AppState {
     pub jobs: Vec<Job>,
     pub drag: TabDragState,
     pub find: Find,
+    /// Decoded images, bounded (§5.3).
+    pub images: ImageCache,
     /// Set by `poll` each frame; handlers have no clock of their own.
     pub now: f64,
     /// Read by Edit mode (phase 2); the Preview | Edit control is hand-built and inert for now.
@@ -106,6 +111,7 @@ impl AppState {
             jobs: Vec::new(),
             drag: TabDragState::default(),
             find: Find::new(),
+            images: ImageCache::new(),
             now: 0.0,
             mode: Mode::Preview,
             guard: None,
@@ -266,6 +272,24 @@ impl AppState {
                     self.mark_deleted(id);
                 }
             }
+        }
+    }
+
+    /// Queues a decode for each local image not yet cached or pending. Paths are already resolved
+    /// on the worker.
+    pub fn want_images(&mut self, paths: Vec<PathBuf>) {
+        for p in paths {
+            if !self.images.has(&p) && !self.images.pending(&p) {
+                self.images.mark_pending(p.clone());
+                self.jobs.push(Job::Image { key: p });
+            }
+        }
+    }
+
+    /// A worker finished decoding an image. A failed decode stays pending, so it is not retried.
+    pub fn image_ready(&mut self, key: PathBuf, image: Option<(rune::Image, usize)>) {
+        if let Some((img, bytes)) = image {
+            self.images.insert(key, img, bytes);
         }
     }
 
