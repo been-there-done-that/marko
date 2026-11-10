@@ -6,6 +6,7 @@ use std::sync::mpsc::{self, Sender};
 use rune::AppHandle;
 
 use crate::app::{AppState, Job};
+use crate::edit::save_atomic;
 use crate::load::{self, DocState};
 use crate::sidebar;
 
@@ -13,6 +14,8 @@ use crate::sidebar;
 pub enum JobResult {
     Loaded { tab: u64, doc: DocState },
     Scanned { root: PathBuf, files: Result<Vec<PathBuf>, String> },
+    /// A save finished. `text` is what the write was given.
+    Saved { tab: u64, text: String, result: Result<(), String> },
 }
 
 /// Runs one job to completion. Blocking; call only from the worker.
@@ -23,6 +26,10 @@ pub fn run_job(job: Job) -> JobResult {
             let files = sidebar::scan(&root);
             JobResult::Scanned { root, files }
         }
+        Job::Save { tab, path, text } => {
+            let result = save_atomic(&path, &text);
+            JobResult::Saved { tab, text, result }
+        }
     }
 }
 
@@ -32,6 +39,7 @@ impl JobResult {
         match self {
             JobResult::Loaded { tab, doc } => s.loaded(tab, doc),
             JobResult::Scanned { root, files } => s.scanned(&root, files),
+            JobResult::Saved { tab, text, result } => s.saved(tab, text, result),
         }
     }
 }

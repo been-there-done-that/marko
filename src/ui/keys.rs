@@ -1,12 +1,14 @@
 //! The keyboard map (§4.13): the app's shortcuts.
 
-use rune::{Key, KeyEvent, Tx};
+use std::path::Path;
+
+use rune::{FileDialogOptions, Key, KeyEvent, Tx};
 
 use crate::app::{AppState, Job};
 use crate::find::{reveal_current, toggle as toggle_find};
 use crate::load::DocState;
 use crate::ui::editor;
-use crate::ui::menus::{close_tab, copy_path, open_file_dialog, open_folder_dialog};
+use crate::ui::menus::{close_tab, copy_path, new_file, open_file_dialog, open_folder_dialog};
 
 /// ⌘ (Ctrl off macOS) plus `c`, with ⇧ held exactly when `shift` says.
 fn chord(ev: &KeyEvent, c: char, shift: bool) -> bool {
@@ -41,6 +43,50 @@ pub fn find_field_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         Key::Enter => true,
         _ => false,
     }
+}
+
+/// Saves tab `id`. A titled tab writes straight to its path. An untitled tab, or Save As, first
+/// asks the Save dialog where to write, and the tab takes the chosen path. `then_close` closes
+/// the tab once the write lands (the guard's Save). Returns false when the tab is not loaded.
+pub fn save_tab(s: &mut AppState, tx: &mut Tx, id: u64, save_as: bool, then_close: bool) -> bool {
+    let Some(tab) = s.tabs.iter().find(|t| t.id == id) else { return false };
+    if !matches!(tab.doc, DocState::Ready { .. }) {
+        return false;
+    }
+    if !save_as && !tab.untitled {
+        let path = tab.path.clone();
+        s.queue_save(id, path, then_close);
+        return true;
+    }
+    let file_name = tab.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let options = FileDialogOptions {
+        title: "Save Markdown".into(),
+        directory: tab.path.parent().map(Path::to_path_buf),
+        file_name: Some(file_name),
+        ..Default::default()
+    }
+    .filter("Markdown", &["md", "markdown"]);
+    tx.save_file(options, move |s: &mut AppState, r, _: &mut Tx| match r {
+        Ok(Some(path)) => {
+            if let Some(t) = s.tabs.get_mut(id) {
+                t.path = path.clone();
+                t.untitled = false;
+            }
+            s.queue_save(id, path, then_close);
+        }
+        Ok(None) => {}
+        Err(_) => {
+            let now = s.now;
+            s.show_toast("Couldn't open the file dialog", now);
+        }
+    });
+    true
+}
+
+/// ⌘S saves the active tab; ⇧⌘S saves it under a new name.
+fn save_active(s: &mut AppState, tx: &mut Tx, save_as: bool) -> bool {
+    let Some(id) = s.tabs.active().map(|t| t.id) else { return false };
+    save_tab(s, tx, id, save_as, false)
 }
 
 fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
@@ -87,6 +133,16 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     }
     if chord(ev, 'e', false) {
         return editor::toggle(s);
+    }
+    if chord(ev, 's', false) {
+        return save_active(s, tx, false);
+    }
+    if chord(ev, 's', true) {
+        return save_active(s, tx, true);
+    }
+    if chord(ev, 'n', false) {
+        new_file(s);
+        return true;
     }
     if chord(ev, 'w', false) && s.tabs.active().is_some() {
         close_tab(s);

@@ -13,7 +13,7 @@ mod titlebar;
 use std::path::PathBuf;
 
 use rune::{Cx, El, TextStyle, Tx, col, el, icon, row, text};
-use rune_kit::Kit;
+use rune_kit::{Button, ButtonVariant, Dialog, Kit};
 
 use crate::app::{AppState, Appearance};
 use crate::icons;
@@ -41,6 +41,7 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     if s.find.open {
         layers.push(find_bar::view(s, k, t));
     }
+    guard(s, k, &mut layers);
     if s.drop_hover {
         layers.push(drop_overlay(k, t));
     }
@@ -81,6 +82,36 @@ fn toast(s: &AppState, k: &Kit, t: &Tokens) -> El {
     let pill = row().key("toast").h(30.0).px(12.0).gap(8.0).center_y().radius(15.0).fill(t.fg)
         .child(text(msg).font(font).color(k.c.page));
     row().key("toast-layer").pin(Some(0.0), Some(theme::BAR_H + 12.0), Some(0.0), None).justify_center().child(pill)
+}
+
+/// The unsaved-changes guard: asked before a tab with unsaved edits closes. Save writes the tab
+/// (asking for a name first when it is untitled) and then closes it; Don't Save closes it as it
+/// is; Cancel and the close button keep it open.
+fn guard(s: &AppState, k: &Kit, layers: &mut Vec<El>) {
+    let Some(tab) = s.guard.and_then(|id| s.tabs.iter().find(|t| t.id == id)) else { return };
+    let name = tab.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let actions = row().w_full().padding(16.0).gap(8.0).justify_end()
+        .child(Button::new("Cancel").variant(ButtonVariant::Ghost)
+            .on_press(|s: &mut AppState| s.guard = None).build(k).key("guard-cancel"))
+        .child(Button::new("Don't Save")
+            .on_press(|s: &mut AppState| {
+                if let Some(id) = s.guard.take() {
+                    s.close_now(id);
+                }
+            }).build(k).key("guard-discard"))
+        .child(Button::new("Save").variant(ButtonVariant::Submit)
+            .on_press_tx(|s: &mut AppState, tx: &mut Tx| {
+                if let Some(id) = s.guard.take() {
+                    keys::save_tab(s, tx, id, false, true);
+                }
+            }).build(k).key("guard-save"));
+    Dialog::new("guard", format!("Save changes to {name}?"))
+        .width(400.0)
+        .fit()
+        .open(true)
+        .on_close(|s: &mut AppState| s.guard = None)
+        .child(actions)
+        .build(k, layers);
 }
 
 /// The drop hover (§4.10): a scrim, a dashed inset and a card naming what a drop does.

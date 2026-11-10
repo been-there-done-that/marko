@@ -9,8 +9,9 @@ fn dirty_after_edit_clean_after_save() {
     assert!(!buf.dirty());
     buf.text.replace_text("# a\n\nmore\n");
     assert!(buf.dirty());
-    save_atomic(&path, &buf.text()).unwrap();
-    buf.mark_saved();
+    let text = buf.text();
+    save_atomic(&path, &text).unwrap();
+    buf.mark_saved(&text);
     assert!(!buf.dirty());
 }
 
@@ -47,8 +48,19 @@ fn own_save_is_not_external_change() {
     std::fs::write(&path, "x").unwrap();
     let mut buf = EditBuffer::from_src("x");
     buf.text.replace_text("y\n");
-    save_atomic(&path, &buf.text()).unwrap();
-    buf.mark_saved();
+    let text = buf.text();
+    save_atomic(&path, &text).unwrap();
+    buf.mark_saved(&text);
     let on_disk = std::fs::read_to_string(&path).unwrap();
     assert_eq!(content_hash(&on_disk), buf.saved_hash);
+}
+
+#[test]
+fn typing_during_save_stays_dirty() {
+    let mut buf = EditBuffer::from_src("a");
+    buf.text.replace_text("ab");
+    let saved = buf.text();
+    buf.text.replace_text("abc");
+    buf.mark_saved(&saved);
+    assert!(buf.dirty());
 }

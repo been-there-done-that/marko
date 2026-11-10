@@ -140,7 +140,7 @@ fn start(handle: AppHandle<AppState>) {
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
     if let Some(watcher) = WATCHER.get() {
-        let files: Vec<PathBuf> = s.tabs.iter().map(|t| t.path.clone()).collect();
+        let files: Vec<PathBuf> = s.tabs.iter().filter(|t| !t.untitled).map(|t| t.path.clone()).collect();
         let roots: Vec<PathBuf> = s.sidebar.roots.iter().map(|r| r.path.clone()).collect();
         watcher.lock().unwrap_or_else(|e| e.into_inner()).sync(&files, &roots);
     }

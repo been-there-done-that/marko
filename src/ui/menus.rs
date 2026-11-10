@@ -8,6 +8,7 @@ use rune_kit::{Kit, Menu, MenuItem};
 use crate::app::{AppState, Appearance, MenuKind};
 use crate::icons;
 use crate::theme;
+use crate::ui::editor;
 use crate::ui::titlebar::chord;
 
 /// Recent entries shown in the Open menu. The state keeps more.
@@ -33,6 +34,14 @@ pub fn open_file_dialog(tx: &mut Tx) {
         let now = s.now;
         s.dialog_answer(r, now);
     });
+}
+
+/// New Markdown File: an untitled tab, switched to Edit with its source focused. Shared by the
+/// Open menu and ⌘N.
+pub(super) fn new_file(s: &mut AppState) {
+    s.menu = None;
+    s.new_untitled();
+    editor::enter(s);
 }
 
 /// The Open Folder dialog, shared by the Open menu and ⇧⌘O.
@@ -76,8 +85,8 @@ pub fn open_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
         .item(
             MenuItem::new("New Markdown File")
                 .lead(lead("menu-new", Some(&icons::FILE_PLUS), t.fg2))
-                .badge("Phase 2")
-                .disabled(true),
+                .shortcut(chord(false, "N"))
+                .on_select(new_file),
         )
         .separator()
         .item(
@@ -126,11 +135,11 @@ pub(super) fn copy_path(s: &mut AppState, tx: &mut Tx) {
     }
 }
 
-/// Closes the active tab. Shared by the More menu and ⌘W.
+/// Closes the active tab, asking first when it has unsaved edits. Shared by the More menu and ⌘W.
 pub(super) fn close_tab(s: &mut AppState) {
     s.menu = None;
     if let Some(id) = s.tabs.active().map(|tab| tab.id) {
-        s.tabs.close(id);
+        s.request_close(id);
     }
 }
 

@@ -87,8 +87,7 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
         })
         .on_close(|s: &mut AppState, id: &str, _: &mut rune::Tx| {
             if let Ok(id) = id.parse() {
-                s.tabs.close(id);
-                s.sync_find();
+                s.request_close(id);
             }
         })
         .on_reorder(|s: &mut AppState, r: TabReorder, _: &mut rune::Tx| {

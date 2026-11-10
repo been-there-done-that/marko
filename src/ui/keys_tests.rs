@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};
 
-use crate::app::{AppState, Job, MenuKind};
+use crate::app::{AppState, Job, MenuKind, Mode};
 use crate::load::DocState;
+use crate::ui::editor;
 use crate::ui::keys::on_key;
 use crate::ui::view;
 
@@ -198,4 +199,43 @@ fn cmd_f_focuses_the_field_so_typing_searches() {
     send(&mut rt, KeyEvent { key: Key::Text("table".into()), mods: Mods::default() });
     assert_eq!(rt.state.find.query.text, "table");
     assert!(rt.state.find.count() > 0, "typing into the focused field runs find");
+}
+
+#[test]
+fn cmd_s_saves_and_clears_dirty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.md");
+    std::fs::write(&path, "# a\n").unwrap();
+    let mut rt = runtime(AppState::new());
+    rt.state.open_paths(std::slice::from_ref(&path), 0.0);
+    let id = rt.state.tabs.active().map(|t| t.id).expect("a tab is open");
+    rt.state.loaded(id, crate::load::load(&path));
+    editor::enter(&mut rt.state);
+    let buf = rt.state.tabs.active_mut().and_then(|t| t.edit.as_mut()).expect("a buffer");
+    buf.text.replace_text("# a\n\nmore\n");
+    rt.frame(1.0 / 60.0);
+    assert!(editor::dirty(rt.state.tabs.active().expect("active tab")));
+
+    rt.state.jobs.clear();
+    send(&mut rt, cmd('s'));
+    let jobs: Vec<Job> = rt.state.jobs.drain(..).collect();
+    assert!(matches!(jobs.as_slice(), [Job::Save { .. }]));
+    for job in jobs {
+        crate::worker::run_job(job).apply(&mut rt.state);
+    }
+
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "# a\n\nmore\n");
+    assert!(!editor::dirty(rt.state.tabs.active().expect("active tab")));
+    assert_eq!(rt.state.toast.as_ref().map(|t| t.text.as_str()), Some("Saved a.md"));
+}
+
+#[test]
+fn cmd_n_opens_untitled_in_edit_mode() {
+    let mut rt = runtime(AppState::new());
+    send(&mut rt, cmd('n'));
+    let tab = rt.state.tabs.active().expect("an untitled tab");
+    assert!(tab.untitled);
+    assert!(tab.path.ends_with("Untitled.md"));
+    assert!(matches!(rt.state.mode, Mode::Edit));
+    assert!(!editor::dirty(tab));
 }

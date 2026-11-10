@@ -17,7 +17,6 @@ impl EditBuffer {
         Self { text: TextEdit::new(src), saved_hash: content_hash(src) }
     }
 
-    #[allow(dead_code)] // Task 7 (Save) reads the buffer's text to write it.
     pub fn text(&self) -> String {
         self.text.text.clone()
     }
@@ -26,15 +25,14 @@ impl EditBuffer {
         content_hash(&self.text.text) != self.saved_hash
     }
 
-    #[allow(dead_code)] // Task 7 (Save) marks the buffer clean once its write lands.
-    pub fn mark_saved(&mut self) {
-        self.saved_hash = content_hash(&self.text.text);
+    /// Marks `saved` as what is on disk now. Text typed after the save began stays dirty.
+    pub fn mark_saved(&mut self, saved: &str) {
+        self.saved_hash = content_hash(saved);
     }
 }
 
 /// Writes `text` verbatim to a temp file beside `path`, then renames it over `path`, so a
 /// reader never sees a half-written file.
-#[allow(dead_code)] // Task 7 (Save, Save As) writes through this.
 pub fn save_atomic(path: &Path, text: &str) -> Result<(), String> {
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
@@ -47,7 +45,6 @@ pub fn save_atomic(path: &Path, text: &str) -> Result<(), String> {
 }
 
 /// The first free name of `Untitled.md`, `Untitled 2.md`, `Untitled 3.md`, …
-#[allow(dead_code)] // Task 7 (New) names the new tab with this.
 pub fn untitled_name(existing: &[String]) -> String {
     let taken = |n: &str| existing.iter().any(|e| e == n);
     if !taken("Untitled.md") {

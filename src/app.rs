@@ -1,11 +1,13 @@
 //! App state: open tabs, sidebar roots, view settings, and the work queued for the worker.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rune_kit::shell::TabDragState;
 
+use crate::edit::{self, EditBuffer};
 use crate::find::Find;
-use crate::load::{DocState, LoadError};
+use crate::load::{DocState, LoadError, LARGE_BYTES};
 use crate::paths::canonical;
 use crate::sidebar::{build_tree, readme_or_first, Sidebar};
 use crate::tabs::TabSet;
@@ -24,7 +26,6 @@ const ZOOM_MAX: f32 = 2.0;
 pub enum Mode {
     Preview,
     /// Shown by the Edit view (Task 6).
-    #[allow(dead_code)] // Nothing switches to Edit yet.
     Edit,
 }
 
@@ -51,6 +52,8 @@ pub struct Toast {
 pub enum Job {
     Load { tab: u64, path: PathBuf },
     Scan { root: PathBuf },
+    /// Writes `text` to `path` atomically. The result comes back as `JobResult::Saved`.
+    Save { tab: u64, path: PathBuf, text: String },
 }
 
 pub struct AppState {
@@ -71,6 +74,10 @@ pub struct AppState {
     /// Read by Edit mode (phase 2); the Preview | Edit control is hand-built and inert for now.
     #[allow(dead_code)]
     pub mode: Mode,
+    /// The tab whose unsaved-changes guard is up.
+    pub guard: Option<u64>,
+    /// Tabs to close once their save succeeds (the guard's Save).
+    pub close_after_save: Vec<u64>,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -95,7 +102,81 @@ impl AppState {
             find: Find::new(),
             now: 0.0,
             mode: Mode::Preview,
+            guard: None,
+            close_after_save: Vec::new(),
         }
+    }
+
+    /// Closes a tab, or asks first when it has unsaved edits: the guard then decides.
+    pub fn request_close(&mut self, id: u64) {
+        let dirty = self.tabs.iter().any(|t| t.id == id && t.edit.as_ref().is_some_and(EditBuffer::dirty));
+        if dirty {
+            self.guard = Some(id);
+        } else {
+            self.close_now(id);
+        }
+    }
+
+    /// Closes a tab whatever its edits, and drops its guard if one is up.
+    pub fn close_now(&mut self, id: u64) {
+        if self.guard == Some(id) {
+            self.guard = None;
+        }
+        self.tabs.close(id);
+        self.sync_find();
+    }
+
+    /// Opens an untitled tab named after the first free `Untitled.md`. The caller switches
+    /// it to Edit.
+    pub fn new_untitled(&mut self) {
+        let names: Vec<String> = self.tabs.iter().map(|t| file_name(&t.path)).collect();
+        let name = edit::untitled_name(&names);
+        self.tabs.open_untitled(&name);
+        self.sync_find();
+    }
+
+    /// Queues a write of tab `id`'s text to `path`. With `then_close`, the tab closes once the
+    /// write lands. A tab that is not loaded has nothing to write.
+    pub fn queue_save(&mut self, id: u64, path: PathBuf, then_close: bool) {
+        let Some(tab) = self.tabs.iter().find(|t| t.id == id) else { return };
+        let text = match (&tab.edit, &tab.doc) {
+            (Some(buf), _) => buf.text(),
+            (None, DocState::Ready { src, .. }) => src.to_string(),
+            _ => return,
+        };
+        self.jobs.push(Job::Save { tab: id, path, text });
+        if then_close {
+            self.close_after_save.push(id);
+        }
+    }
+
+    /// A worker finished a save. On success the tab shows the saved text and records its hash,
+    /// so the watcher's reload of the same bytes stays silent. The tab then closes if the guard
+    /// asked for that. A failed save keeps the tab and its edits.
+    pub fn saved(&mut self, tab: u64, text: String, result: Result<(), String>) {
+        let now = self.now;
+        let close = self.close_after_save.contains(&tab);
+        self.close_after_save.retain(|&id| id != tab);
+        let Some(t) = self.tabs.get_mut(tab) else { return };
+        let name = file_name(&t.path);
+        let toast = match result {
+            Ok(()) => {
+                t.hash = Some(content_hash(&text));
+                t.deleted = false;
+                if let Some(buf) = t.edit.as_mut() {
+                    buf.mark_saved(&text);
+                }
+                let large = text.len() as u64 > LARGE_BYTES;
+                t.doc = DocState::Ready { src: Arc::from(text.as_str()), large, lossy: false };
+                format!("Saved {name}")
+            }
+            Err(e) => format!("Couldn't save {name}: {e}"),
+        };
+        self.show_toast(toast, now);
+        if close && self.tabs.iter().any(|t| t.id == tab) {
+            self.close_now(tab);
+        }
+        self.sync_find();
     }
 
     /// A worker finished loading a tab's document. A reload whose text is unchanged does nothing

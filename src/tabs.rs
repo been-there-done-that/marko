@@ -21,7 +21,6 @@ pub struct Tab {
     #[allow(dead_code)] // Read by Edit mode (Task 6).
     pub edit: Option<EditBuffer>,
     /// A New tab that has never been saved; its path does not exist on disk yet.
-    #[allow(dead_code)] // Read by Save and the unsaved-changes guard (Task 7).
     pub untitled: bool,
     /// Changed on disk while in the background: the strip shows a dot until the tab is activated.
     pub changed: bool,
@@ -58,11 +57,16 @@ impl TabSet {
         (self.insert_tab(key, DocState::Loading, None, false), true)
     }
 
-    /// Opens an empty, unsaved tab named `name` in the current directory and activates it.
-    /// Its edit buffer starts empty, so it is not dirty until something is typed.
-    #[allow(dead_code)] // The New command (Task 6/7) calls this.
+    /// Opens an empty, unsaved tab named `name` and activates it. It goes in the active tab's
+    /// folder, or the home folder when no tab is open. Its edit buffer starts empty, so it is not
+    /// dirty until something is typed.
     pub fn open_untitled(&mut self, name: &str) -> u64 {
-        let dir = std::env::current_dir().unwrap_or_default();
+        let dir = self
+            .active()
+            .and_then(|t| t.path.parent().map(Path::to_path_buf))
+            .or_else(std::env::home_dir)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default();
         let doc = DocState::Ready { src: Arc::from(""), large: false, lossy: false };
         self.insert_tab(dir.join(name), doc, Some(EditBuffer::from_src("")), true)
     }
