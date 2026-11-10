@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Markdown Viewer UI</title>
+<!--
+  UI mockup for the Rune Markdown viewer (phase 1: preview).
+  Icons: Lucide (ISC licence), 24-unit viewBox, drawn at 16px with a 1.75 stroke.
+  Every number here is a token in PLAN.md §7 (Design system).
+-->
+<style>
+:root{
+  /* spacing — 4pt grid */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px;
+  /* sizes */
+  --bar-h:40px; --btn:28px; --icon:16px; --radius-s:6px; --radius-m:8px; --radius-l:12px;
+  --side-w:248px; --row-h:28px; --read-w:720px;
+  /* type */
+  --ui:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --mono:"SF Mono","JetBrains Mono","Cascadia Code",ui-monospace,Menlo,Consolas,monospace;
+  /* light palette */
+  --desk:#d5d8de; --bg:#ffffff; --bar:#f5f5f4; --surface:#ffffff; --side:#fafaf9;
+  --line:#e7e5e4; --line-strong:#d6d3d1;
+  --fg:#1c1917; --fg-2:#57534e; --fg-3:#a8a29e;
+  --hover:rgba(28,25,23,.055); --press:rgba(28,25,23,.09);
+  --accent:#2f6bff; --accent-soft:rgba(47,107,255,.10); --on-accent:#fff;
+  --code-bg:#f7f7f6; --code-line:#ecebea;
+  --tk-kw:#b4237a; --tk-str:#1a7f37; --tk-fn:#2f5fd0; --tk-num:#a15c00; --tk-com:#8c8781; --tk-ty:#7a3fc2;
+  --shadow-pop:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.12);
+  --shadow-win:0 24px 64px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.14);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --desk:#0b0c0e; --bg:#18181b; --bar:#1f1f23; --surface:#18181b; --side:#1c1c20;
+  --line:#2c2c31; --line-strong:#3a3a40;
+  --fg:#ededef; --fg-2:#a1a1aa; --fg-3:#63636b;
+  --hover:rgba(255,255,255,.06); --press:rgba(255,255,255,.10);
+  --accent:#6b93ff; --accent-soft:rgba(107,147,255,.14); --on-accent:#0b0c0e;
+  --code-bg:#1f1f23; --code-line:#2c2c31;
+  --tk-kw:#ff7ab8; --tk-str:#7ee2a0; --tk-fn:#8fb2ff; --tk-num:#f5b86b; --tk-com:#73737d; --tk-ty:#c7a1ff;
+  --shadow-pop:0 1px 2px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.5);
+  --shadow-win:0 24px 64px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --desk:#0b0c0e; --bg:#18181b; --bar:#1f1f23; --surface:#18181b; --side:#1c1c20;
+  --line:#2c2c31; --line-strong:#3a3a40;
+  --fg:#ededef; --fg-2:#a1a1aa; --fg-3:#63636b;
+  --hover:rgba(255,255,255,.06); --press:rgba(255,255,255,.10);
+  --accent:#6b93ff; --accent-soft:rgba(107,147,255,.14); --on-accent:#0b0c0e;
+  --code-bg:#1f1f23; --code-line:#2c2c31;
+  --tk-kw:#ff7ab8; --tk-str:#7ee2a0; --tk-fn:#8fb2ff; --tk-num:#f5b86b; --tk-com:#73737d; --tk-ty:#c7a1ff;
+  --shadow-pop:0 1px 2px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.5);
+  --shadow-win:0 24px 64px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.08);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--desk);font:13px/1.45 var(--ui);color:var(--fg);-webkit-font-smoothing:antialiased}
+svg.i{width:var(--icon);height:var(--icon);stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;flex:none}
+svg.i.sm{width:14px;height:14px}
+
+/* ---------- demo controls (not part of the app) ---------- */
+.demo{display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;padding:var(--s3) var(--s4)}
+.demo .grp{display:flex;background:var(--bar);border:1px solid var(--line);border-radius:var(--radius-m);padding:2px;gap:2px}
+.demo button{border:0;background:none;color:var(--fg-2);padding:5px 10px;font:500 12px var(--ui);border-radius:var(--radius-s);cursor:pointer}
+.demo button:hover{color:var(--fg);background:var(--hover)}
+.demo button.on{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.demo .hint{color:var(--fg-2);font-size:12px;padding:0 var(--s4) var(--s3)}
+
+/* ---------- window ---------- */
+.window{margin:0 var(--s4) var(--s6);height:740px;max-width:1240px;background:var(--bg);border-radius:var(--radius-l);overflow:hidden;
+  box-shadow:var(--shadow-win);display:flex;flex-direction:column;position:relative}
+.window.win{border-radius:var(--radius-m)}
+
+/* ---------- titlebar (the only chrome) ---------- */
+.titlebar{height:var(--bar-h);flex:none;background:var(--bar);border-bottom:1px solid var(--line);display:flex;align-items:center;
+  gap:var(--s1);padding:0 var(--s2);user-select:none;position:relative;z-index:10}
+.window.win .titlebar,.window.linux .titlebar{padding-right:0}
+.lights{display:flex;gap:8px;width:68px;padding-left:8px;flex:none}
+.lights i{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.15)}
+.lights i:nth-child(1){background:#ff5f57}.lights i:nth-child(2){background:#febc2e}.lights i:nth-child(3){background:#28c840}
+.ib{width:var(--btn);height:var(--btn);border-radius:var(--radius-s);display:grid;place-items:center;color:var(--fg-2);flex:none;cursor:default;position:relative;border:0;background:none;padding:0}
+.ib:hover{background:var(--hover);color:var(--fg)}
+.ib:active{background:var(--press)}
+.ib.on{color:var(--fg);background:var(--hover)}
+.ib:focus-visible,.tab:focus-visible,.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.divider{width:1px;height:16px;background:var(--line-strong);margin:0 var(--s1);flex:none}
+.drag{flex:1;align-self:stretch;min-width:var(--s8)}
+.annot .drag{background:repeating-linear-gradient(-45deg,transparent 0 6px,var(--accent-soft) 6px 12px)}
+
+/* tooltips */
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  background:var(--fg);color:var(--bg);font:500 11px/1 var(--ui);padding:6px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;z-index:50}
+.right[data-tip]:hover::after{left:auto;right:0;transform:none}
+
+/* tabs */
+.tabs{display:flex;align-items:center;gap:2px;min-width:0;flex:0 1 auto;overflow:hidden}
+.tab{height:var(--btn);padding:0 var(--s1) 0 var(--s2);display:flex;align-items:center;gap:6px;border-radius:var(--radius-s);color:var(--fg-2);
+  min-width:96px;max-width:200px;flex:0 1 auto;cursor:default;position:relative;font-weight:500;font-size:12.5px;border:1px solid transparent}
+.tab .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.tab:hover{background:var(--hover);color:var(--fg)}
+.tab.active{background:var(--surface);color:var(--fg);border-color:var(--line);box-shadow:0 1px 2px rgba(0,0,0,.06)}
+.tab .fi{color:var(--fg-3)}.tab.active .fi{color:var(--accent)}
+.tab .x{width:20px;height:20px;border-radius:4px;display:grid;place-items:center;visibility:hidden;color:var(--fg-2)}
+.tab:hover .x,.tab.active .x{visibility:visible}
+.tab .x:hover{background:var(--press);color:var(--fg)}
+.tab .dot{position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 2px var(--bar)}
+
+/* segmented preview / edit */
+.seg{display:flex;background:var(--hover);border-radius:7px;padding:2px;gap:2px;flex:none}
+.seg button{display:flex;align-items:center;gap:6px;border:0;background:none;font:500 12px var(--ui);color:var(--fg-2);height:24px;padding:0 10px;border-radius:5px;position:relative}
+.seg button.on{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.seg button[disabled]{color:var(--fg-3)}
+
+/* caption buttons */
+.caption{display:flex;align-self:stretch;flex:none;margin-left:var(--s1)}
+.caption.win button{width:46px;border:0;background:none;color:var(--fg);display:grid;place-items:center}
+.caption.win button:hover{background:var(--hover)}
+.caption.win button.close:hover{background:#c42b1c;color:#fff}
+.caption.win svg{width:10px;height:10px;stroke:currentColor;stroke-width:1;fill:none}
+.caption.gtk{align-items:center;gap:var(--s3);padding:0 var(--s3) 0 var(--s2)}
+.caption.gtk button{width:24px;height:24px;border-radius:50%;border:0;background:var(--hover);color:var(--fg);display:grid;place-items:center}
+.caption.gtk button:hover{background:var(--press)}
+.caption.gtk svg{width:12px;height:12px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round}
+
+/* menus */
+.menu{position:absolute;top:calc(var(--bar-h) - 4px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);
+  padding:var(--s1);min-width:260px;box-shadow:var(--shadow-pop);z-index:60;display:none}
+.menu.open{display:block;animation:pop .14s cubic-bezier(.2,.9,.3,1.2)}
+@keyframes pop{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.menu.open{animation:none}}
+.mi{height:30px;padding:0 var(--s2);border-radius:5px;display:flex;align-items:center;gap:var(--s2);color:var(--fg);cursor:default}
+.mi .i{color:var(--fg-2)}
+.mi .lbl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mi .sub{color:var(--fg-3);font-size:12px}
+.mi kbd{font:12px var(--ui);color:var(--fg-3);letter-spacing:.02em}
+.mi:hover{background:var(--accent);color:var(--on-accent)}
+.mi:hover .i,.mi:hover kbd,.mi:hover .sub{color:var(--on-accent)}
+.mi.dis{color:var(--fg-3)}.mi.dis .i{color:var(--fg-3)}.mi.dis:hover{background:none;color:var(--fg-3)}.mi.dis:hover kbd,.mi.dis:hover .i{color:var(--fg-3)}
+.mi .pill{font-size:10px;font-weight:600;padding:2px 6px;border-radius:10px;background:var(--hover);color:var(--fg-2)}
+.mh{font-size:11px;font-weight:600;color:var(--fg-3);padding:var(--s2) var(--s2) var(--s1);letter-spacing:.02em}
+.menu hr{border:0;border-top:1px solid var(--line);margin:var(--s1) 0}
+
+/* ---------- body ---------- */
+.body{flex:1;display:flex;min-height:0;position:relative}
+.side{width:var(--side-w);background:var(--side);border-right:1px solid var(--line);overflow:auto;padding:var(--s2);flex:none}
+.side.hidden{display:none}
+.sh{display:flex;align-items:center;justify-content:space-between;height:var(--row-h);padding:0 var(--s2);margin-top:var(--s2);
+  font-size:11px;font-weight:600;color:var(--fg-3);letter-spacing:.04em;text-transform:uppercase}
+.sh:first-child{margin-top:0}
+.sh .ib{width:22px;height:22px;visibility:hidden}.sh:hover .ib{visibility:visible}
+.row{height:var(--row-h);padding:0 var(--s2);border-radius:var(--radius-s);display:flex;align-items:center;gap:6px;cursor:default;white-space:nowrap;color:var(--fg)}
+.row .i{color:var(--fg-3)}
+.row .tw{width:14px;display:grid;place-items:center;color:var(--fg-3)}
+.row:hover{background:var(--hover)}
+.row.sel{background:var(--accent-soft);color:var(--fg)}
+.row.sel .i{color:var(--accent)}
+.row .name{overflow:hidden;text-overflow:ellipsis}
+.d1{padding-left:calc(var(--s2) + 16px)}
+
+.doc{flex:1;overflow:auto;scroll-behavior:smooth}
+.md{max-width:calc(var(--read-w) + 2*var(--s10));margin:0 auto;padding:var(--s10) var(--s10) 96px;font-size:16px;line-height:1.7;color:var(--fg)}
+.md h1{font-size:32px;line-height:1.2;font-weight:700;letter-spacing:-.02em;margin:0 0 var(--s4)}
+.md h2{font-size:22px;line-height:1.3;font-weight:650;letter-spacing:-.01em;margin:var(--s10) 0 var(--s3);padding-bottom:var(--s2);border-bottom:1px solid var(--line)}
+.md p{margin:0 0 var(--s4)}
+.md .lead{font-size:18px;color:var(--fg-2);line-height:1.6}
+.md a{color:var(--accent);text-decoration:underline;text-decoration-color:var(--accent-soft);text-underline-offset:3px}
+.md :not(pre)>code{font:0.875em/1 var(--mono);background:var(--code-bg);border:1px solid var(--code-line);padding:2px 5px;border-radius:4px}
+.md blockquote{margin:0 0 var(--s4);padding:var(--s1) var(--s4);border-left:3px solid var(--line-strong);color:var(--fg-2)}
+.md ul{padding-left:var(--s6);margin:0 0 var(--s4)}
+.md li{margin:var(--s1) 0}
+.md li.task{list-style:none;margin-left:calc(-1 * var(--s5));display:flex;gap:var(--s2);align-items:center}
+.md li.task .cb{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--line-strong);display:grid;place-items:center;flex:none}
+.md li.task .cb.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.md li.task .cb svg{width:12px;height:12px;stroke:currentColor;stroke-width:2.5;fill:none}
+.md li.task.done span{color:var(--fg-2)}
+mark{background:rgba(255,200,0,.35);color:inherit;border-radius:2px;padding:0 1px}
+mark.cur{background:rgba(255,150,0,.7)}
+
+.code{background:var(--code-bg);border:1px solid var(--code-line);border-radius:var(--radius-m);margin:0 0 var(--s5);position:relative}
+.code .hd{display:flex;align-items:center;justify-content:space-between;height:32px;padding:0 var(--s1) 0 var(--s3);border-bottom:1px solid var(--code-line)}
+.code .lang{font:500 11px var(--mono);color:var(--fg-3);text-transform:lowercase}
+.code .ib{width:24px;height:24px}
+.code pre{margin:0;padding:var(--s3) var(--s4);overflow:auto;font:13px/1.65 var(--mono);tab-size:4}
+.kw{color:var(--tk-kw)}.st{color:var(--tk-str)}.fn{color:var(--tk-fn)}.nu{color:var(--tk-num)}.cm{color:var(--tk-com);font-style:italic}.ty{color:var(--tk-ty)}
+
+.tbl{border:1px solid var(--line);border-radius:var(--radius-m);overflow:auto;margin:0 0 var(--s5)}
+table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.5}
+th,td{padding:var(--s2) var(--s3);text-align:left;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{background:var(--code-bg);font-weight:600;font-size:13px;color:var(--fg-2)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:1px 8px;border-radius:10px;background:var(--accent-soft);color:var(--accent)}
+.badge.g{background:var(--hover);color:var(--fg-2)}
+
+.diagram{border:1px solid var(--line);border-radius:var(--radius-m);padding:var(--s6) var(--s4);margin:0 0 var(--s5);display:grid;place-items:center;position:relative}
+.diagram .tag{position:absolute;top:var(--s2);left:var(--s3);font:500 11px var(--mono);color:var(--fg-3)}
+.diagram svg{max-width:100%;height:auto}
+.diagram .node{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.2}
+.diagram .node.a{fill:var(--accent-soft);stroke:var(--accent)}
+.diagram text{fill:var(--fg);font:500 12px var(--ui)}
+.diagram .edge{stroke:var(--fg-3);stroke-width:1.3;fill:none}
+.diagram .lbl{fill:var(--fg-2);font-size:11px;font-weight:400}
+
+/* find bar */
+.find{position:absolute;top:var(--s2);right:var(--s4);height:36px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-m);
+  padding:0 var(--s1) 0 var(--s3);display:none;align-items:center;gap:var(--s1);box-shadow:var(--shadow-pop);z-index:20}
+.find.open{display:flex}
+.find .i{color:var(--fg-3)}
+.find input{border:0;outline:0;background:none;color:var(--fg);font:13px var(--ui);width:200px;margin-left:var(--s1)}
+.find .count{color:var(--fg-3);font-size:12px;font-variant-numeric:tabular-nums;padding:0 var(--s2);border-right:1px solid var(--line);margin-right:var(--s1)}
+.find .ib{width:24px;height:24px}
+
+/* toast */
+.toast{position:absolute;top:var(--s3);left:50%;transform:translate(-50%,-8px);background:var(--fg);color:var(--bg);height:30px;padding:0 var(--s3);
+  border-radius:15px;font-size:12px;font-weight:500;display:flex;align-items:center;gap:var(--s2);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:25}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* empty */
+.empty{flex:1;display:none;place-items:center;padding:var(--s6)}
+.empty .wrap{width:100%;max-width:440px;text-align:center}
+.badge-ico{width:56px;height:56px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin:0 auto var(--s4)}
+.badge-ico svg{width:26px;height:26px}
+.empty h2{font-size:17px;font-weight:650;margin:0 0 var(--s1)}
+.empty p{margin:0;color:var(--fg-2)}
+.actions{display:flex;gap:var(--s2);justify-content:center;margin:var(--s5) 0 var(--s2)}
+.btn{height:32px;padding:0 var(--s3);border-radius:var(--radius-s);display:inline-flex;align-items:center;gap:var(--s2);font:500 13px var(--ui);border:1px solid var(--line-strong);background:var(--surface);color:var(--fg)}
+.btn:hover{background:var(--hover)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn kbd{font:11px var(--ui);opacity:.7}
+.recent{margin-top:var(--s8);text-align:left;border:1px solid var(--line);border-radius:var(--radius-m);padding:var(--s1)}
+.recent .mh{padding:var(--s2) var(--s2) var(--s1)}
+.recent .row .meta{margin-left:auto;color:var(--fg-3);font-size:12px}
+
+/* drop overlay */
+.drop{position:absolute;inset:0;background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(3px);display:none;place-items:center;z-index:40}
+.drop.on{display:grid}
+.drop::before{content:"";position:absolute;inset:var(--s3);border:2px dashed var(--accent);border-radius:var(--radius-l)}
+.drop .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-l);padding:var(--s5) var(--s6);text-align:center;box-shadow:var(--shadow-pop);position:relative}
+.drop .card .badge-ico{width:44px;height:44px;border-radius:12px;margin-bottom:var(--s3)}
+.drop b{display:block;font-size:15px;font-weight:650}
+.drop span{color:var(--fg-2);font-size:12px}
+
+/* annotations */
+.callout{position:absolute;background:#ffd60a;color:#1c1917;font:600 10.5px var(--ui);padding:3px 6px;border-radius:4px;pointer-events:none;z-index:70;white-space:nowrap;display:none;top:calc(var(--bar-h) + 6px)}
+.annot .callout{display:block}
+
+@media (max-width:760px){.side{display:none}.md{padding:var(--s6) var(--s4) 64px}.tab{min-width:72px}.seg button span{display:none}}
+</style>
+</head>
+<body>
+
+<div class="demo">
+  <div class="grp" id="plat"><button data-p="mac">macOS</button><button data-p="win">Windows</button><button data-p="linux">Linux</button></div>
+  <div class="grp" id="state"><button data-s="folder">Folder</button><button data-s="files">Loose files</button><button data-s="empty">Empty</button></div>
+  <div class="grp"><button id="bDrop">Drop overlay</button><button id="bReload">Changed on disk</button><button id="bAnn">Label parts</button><button id="bTheme">Light / dark</button></div>
+</div>
+<div class="hint">Mockup of the Rune app (phase 1, preview). Everything you can press lives in the 40pt titlebar. Try the titlebar buttons, the menus, ⌘/Ctrl+F, ⌘/Ctrl+B, and dragging a .md file onto the window.</div>
+
+<div class="window" id="win">
+  <header class="titlebar" id="tb">
+    <div class="lights" id="lights"><i></i><i></i><i></i></div>
+
+    <button class="ib on" id="bSide" data-tip="Toggle sidebar  ⌘B" aria-label="Toggle sidebar">
+      <svg class="i" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg></button>
+    <button class="ib" id="bOpen" data-tip="Open  ⌘O" aria-label="Open">
+      <svg class="i" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.240 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg></button>
+    <div class="divider"></div>
+
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <div class="drag" id="drag" title="Drag to move · double-click to maximize"></div>
+
+    <div class="seg" role="tablist" aria-label="Mode">
+      <button class="on"><svg class="i sm" viewBox="0 0 24 24"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg><span>Preview</span></button>
+      <button disabled data-tip="Edit arrives in phase 2"><svg class="i sm" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg><span>Edit</span></button>
+    </div>
+    <div class="divider"></div>
+    <button class="ib right" id="bFind" data-tip="Find  ⌘F" aria-label="Find">
+      <svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
+    <button class="ib right" id="bMore" data-tip="More" aria-label="More">
+      <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+
+    <div class="caption" id="caption"></div>
+
+    <!-- Open menu -->
+    <div class="menu" id="mOpen" style="left:88px">
+      <div class="mi dis"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg><span class="lbl">New Markdown File</span><span class="pill">Phase 2</span></div>
+      <hr>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg><span class="lbl">Open File…</span><kbd data-k="O"></kbd></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg><span class="lbl">Open Folder…</span><kbd data-k="⇧O"></kbd></div>
+      <hr>
+      <div class="mh">Recent</div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span class="lbl">rune</span><span class="sub">~/code</span></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg><span class="lbl">README.md</span><span class="sub">~/code/tables</span></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg><span class="lbl">inbox.md</span><span class="sub">~/notes</span></div>
+      <hr>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg><span class="lbl">Clear Recent</span></div>
+    </div>
+
+    <!-- More menu -->
+    <div class="menu" id="mMore" style="right:8px">
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="lbl">Reload from Disk</span><kbd data-k="R"></kbd></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span class="lbl" id="revealLbl">Show in Folder</span></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span class="lbl">Copy Path</span><kbd data-k="⇧C"></kbd></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg><span class="lbl">Copy Markdown Source</span></div>
+      <hr>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/></svg><span class="lbl">Zoom In</span><kbd data-k="+"></kbd></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/></svg><span class="lbl">Zoom Out</span><kbd data-k="−"></kbd></div>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="m18 8 4 4-4 4"/><path d="M2 12h20"/><path d="m6 8-4 4 4 4"/></svg><span class="lbl">Wide Reading Column</span></div>
+      <hr>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg><span class="lbl">Appearance</span><span class="sub">System</span></div>
+      <hr>
+      <div class="mi"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg><span class="lbl">Close Tab</span><kbd data-k="W"></kbd></div>
+    </div>
+
+    <span class="callout" id="c1" style="left:8px">window controls</span>
+    <span class="callout" id="c2" style="left:96px">sidebar · open</span>
+    <span class="callout" style="left:230px">open files</span>
+    <span class="callout" style="left:56%">drag region</span>
+    <span class="callout" id="c5" style="right:260px">mode</span>
+    <span class="callout" id="c6" style="right:150px">find · more</span>
+    <span class="callout" id="c7" style="right:8px">window controls</span>
+  </header>
+
+  <div class="body" id="body">
+    <aside class="side" id="side" aria-label="Files"></aside>
+
+    <main class="doc" id="doc">
+      <article class="md">
+        <h1>Rune Markdown</h1>
+        <p class="lead">A small, fast viewer for Markdown. Open a file or a folder, or drop either onto the window.</p>
+        <p>Everything draws on the GPU: <a href="#">links</a>, <strong>bold</strong>, <em>italics</em>, <code>inline code</code>, tables, task lists and diagrams. Find marks every <mark class="cur">highlight</mark> match in the document.</p>
+        <blockquote>Preview comes first. Edit mode arrives later and reuses the same renderer.</blockquote>
+
+        <h2>Code</h2>
+        <div class="code">
+          <div class="hd"><span class="lang">rust</span>
+            <button class="ib right" data-tip="Copy code" aria-label="Copy code"><svg class="i sm" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button></div>
+<pre><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// Open whatever the shell passed in.</span>
+    <span class="kw">let</span> paths: <span class="ty">Vec</span>&lt;<span class="ty">PathBuf</span>&gt; = std::env::<span class="fn">args_os</span>().<span class="fn">skip</span>(<span class="nu">1</span>).<span class="fn">map</span>(<span class="ty">PathBuf</span>::from).<span class="fn">collect</span>();
+    <span class="ty">Viewer</span>::<span class="fn">app</span>(paths).<span class="fn">run</span>();
+}</pre>
+        </div>
+
+        <h2>Tables</h2>
+        <div class="tbl"><table>
+          <thead><tr><th>Feature</th><th>Phase</th><th class="r">Source</th></tr></thead>
+          <tbody>
+            <tr><td>CommonMark + GFM</td><td><span class="badge">Preview</span></td><td class="r">rune-kit</td></tr>
+            <tr><td>Syntax <mark>highlight</mark>ing</td><td><span class="badge">Preview</span></td><td class="r">rune-kit</td></tr>
+            <tr><td>Mermaid diagrams</td><td><span class="badge">Preview</span></td><td class="r">rune-mermaid</td></tr>
+            <tr><td>Edit with live preview</td><td><span class="badge g">Edit</span></td><td class="r">phase 2</td></tr>
+          </tbody>
+        </table></div>
+
+        <h2>Diagrams</h2>
+        <div class="diagram"><span class="tag">mermaid</span>
+          <svg width="560" height="170" viewBox="0 0 560 170">
+            <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" style="fill:var(--fg-3)"/></marker></defs>
+            <rect class="node" x="8" y="64" width="120" height="40" rx="8"/><text x="68" y="88" text-anchor="middle">Drop or Open</text>
+            <rect class="node" x="196" y="64" width="120" height="40" rx="8"/><text x="256" y="88" text-anchor="middle">Read file</text>
+            <rect class="node a" x="384" y="12" width="168" height="40" rx="8"/><text x="468" y="36" text-anchor="middle">Render Markdown</text>
+            <rect class="node" x="384" y="116" width="168" height="40" rx="8"/><text x="468" y="140" text-anchor="middle">Watch for changes</text>
+            <path class="edge" d="M128 84H194" marker-end="url(#ar)"/>
+            <path class="edge" d="M316 84C350 84 350 32 382 32" marker-end="url(#ar)"/>
+            <path class="edge" d="M316 84C350 84 350 136 382 136" marker-end="url(#ar)"/>
+            <path class="edge" d="M468 116V54" stroke-dasharray="4 4" marker-end="url(#ar)"/>
+            <text class="lbl" x="476" y="90">re-render</text>
+          </svg>
+        </div>
+
+        <h2>Tasks</h2>
+        <ul>
+          <li class="task done"><span class="cb on"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span><span>Titlebar with tabs</span></li>
+          <li class="task done"><span class="cb on"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></span><span>Open a file or folder, or drop one</span></li>
+          <li class="task"><span class="cb"></span><span>Edit mode</span></li>
+        </ul>
+      </article>
+    </main>
+
+    <section class="empty" id="empty">
+      <div class="wrap">
+        <div class="badge-ico"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg></div>
+        <h2>Open some Markdown</h2>
+        <p>Drop files or a folder anywhere on this window.</p>
+        <div class="actions">
+          <button class="btn primary">Open File… <kbd data-k="O"></kbd></button>
+          <button class="btn">Open Folder… <kbd data-k="⇧O"></kbd></button>
+        </div>
+        <div class="recent">
+          <div class="mh">Recent</div>
+          <div class="row"><svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span class="name">rune</span><span class="meta">Yesterday</span></div>
+          <div class="row"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg><span class="name">README.md <span style="color:var(--fg-3)">· tables</span></span><span class="meta">3 days ago</span></div>
+          <div class="row"><svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg><span class="name">inbox.md <span style="color:var(--fg-3)">· notes</span></span><span class="meta">Last week</span></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="find" id="find" role="search">
+      <svg class="i sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input value="highlight" aria-label="Find in document">
+      <span class="count">1 of 2</span>
+      <button class="ib" aria-label="Previous match"><svg class="i sm" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></svg></button>
+      <button class="ib" aria-label="Next match"><svg class="i sm" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="ib" id="bFindX" aria-label="Close find"><svg class="i sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+
+    <div class="toast" id="toast"><svg class="i sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>PLAN.md changed on disk · reloaded</div>
+  </div>
+
+  <div class="drop" id="drop"><div class="card">
+    <div class="badge-ico"><svg class="i" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg></div>
+    <b>Drop to open</b><span>Files open as tabs · folders join the sidebar</span>
+  </div></div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const P={
+  file:'<svg class="i" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>',
+  fileSm:'<svg class="i sm fi" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>',
+  folder:'<svg class="i" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+  folderOpen:'<svg class="i" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>',
+  right:'<span class="tw"><svg class="i sm" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></span>',
+  down:'<span class="tw"><svg class="i sm" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span>',
+  none:'<span class="tw"></span>',
+  x:'<svg class="i sm" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>',
+};
+const CAP={
+  win:`<button aria-label="Minimize"><svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg></button><button aria-label="Maximize"><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg></button><button class="close" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0 0 10"/></svg></button>`,
+  linux:`<button aria-label="Minimize"><svg viewBox="0 0 12 12"><path d="M3 8.5h6"/></svg></button><button aria-label="Maximize"><svg viewBox="0 0 12 12"><rect x="3" y="3" width="6" height="6" rx="1"/></svg></button><button aria-label="Close"><svg viewBox="0 0 12 12"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5"/></svg></button>`
+};
+let plat='linux', state='folder', cur=0, tabs=[];
+const SETS={
+  folder:[{n:'README.md'},{n:'PLAN.md',changed:true},{n:'architecture.md'},{n:'CHANGELOG.md'}],
+  files:[{n:'README.md'},{n:'meeting-notes.md'},{n:'todo.md'}],
+  empty:[]
+};
+const mod=k=>plat==='mac'?'⌘'+k:'Ctrl+'+k.replace('⇧','Shift+');
+function keys(){
+  $$('kbd[data-k]').forEach(el=>el.textContent=mod(el.dataset.k));
+  $$('[data-tip]').forEach(el=>{el.dataset.tip=el.dataset.tip.replace(/(⌘|Ctrl\+)/, plat==='mac'?'⌘':'Ctrl+')});
+  $('#revealLbl').textContent=plat==='mac'?'Reveal in Finder':plat==='win'?'Show in Explorer':'Show in Files';
+}
+function renderTabs(){
+  $('#tabs').innerHTML=tabs.map((t,i)=>`<div class="tab ${i===cur?'active':''}" role="tab" tabindex="0" data-i="${i}" title="~/code/rune/${t.n}">
+    ${P.fileSm}<span class="name">${t.n}</span>${t.changed&&i!==cur?'<span class="dot"></span>':''}<span class="x" aria-label="Close tab">${P.x}</span></div>`).join('');
+  $$('#tabs .tab').forEach(el=>el.onclick=e=>{const i=+el.dataset.i;
+    if(e.target.closest('.x')){tabs.splice(i,1);if(i<cur)cur--;if(cur>=tabs.length)cur=tabs.length-1;if(!tabs.length)return setState('empty',true);}
+    else{cur=i;tabs[i].changed=false;}
+    renderTabs();renderSide();});
+}
+function renderSide(){
+  const s=$('#side'), active=tabs[cur]&&tabs[cur].n;
+  const r=(cls,tw,ic,n)=>`<div class="row ${cls} ${n===active?'sel':''}">${tw}${ic}<span class="name">${n}</span></div>`;
+  if(state==='folder'){
+    s.innerHTML=`<div class="sh"><span>rune</span><button class="ib" aria-label="Remove folder from sidebar">${P.x}</button></div>`
+     +r('',P.down,P.folderOpen,'docs')+r('d1',P.none,P.file,'getting-started.md')+r('d1',P.none,P.file,'architecture.md')+r('d1',P.right,P.folder,'guides')
+     +r('',P.right,P.folder,'research')+r('',P.none,P.file,'AGENTS.md')+r('',P.none,P.file,'CHANGELOG.md')+r('',P.none,P.file,'PLAN.md')+r('',P.none,P.file,'README.md')
+     +`<div class="sh"><span>notes</span><button class="ib" aria-label="Remove folder from sidebar">${P.x}</button></div>`
+     +r('',P.right,P.folder,'2026')+r('',P.none,P.file,'inbox.md')+r('',P.none,P.file,'reading-list.md');
+  } else {
+    s.innerHTML=`<div class="sh"><span>Open files</span></div>`+tabs.map(t=>r('',P.none,P.file,t.n)).join('');
+  }
+}
+function setState(s,keep){
+  state=s; $$('#state button').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+  if(!keep){tabs=SETS[s].map(t=>({...t}));cur=0;}
+  const empty=!tabs.length;
+  $('#doc').style.display=empty?'none':''; $('#empty').style.display=empty?'grid':'none';
+  $('#side').style.display=empty?'none':''; $('#bFind').disabled=empty; $('#bFind').style.opacity=empty?.4:1;
+  if(empty){$('#find').classList.remove('open');$('#bFind').classList.remove('on')}
+  renderTabs(); renderSide();
+}
+function setPlat(p){
+  plat=p; $$('#plat button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
+  const w=$('#win'); w.classList.toggle('linux',p==='linux'); w.classList.toggle('win',p==='win');
+  $('#lights').style.display=p==='mac'?'flex':'none';
+  const c=$('#caption'); c.className='caption '+(p==='win'?'win':'gtk'); c.innerHTML=p==='mac'?'':CAP[p==='win'?'win':'linux']; c.style.display=p==='mac'?'none':'flex';
+  $('#c1').style.display=p==='mac'?'':'none'; $('#c7').style.display=p==='mac'?'none':'';
+  $('#c2').style.left=p==='mac'?'96px':'8px';
+  $('#c7').textContent=p==='linux'?'window controls (app-drawn)':'window controls (Rune-drawn)';
+  $('#c5').style.right=p==='mac'?'140px':p==='win'?'270px':'240px'; $('#c6').style.right=p==='mac'?'16px':p==='win'?'160px':'130px';
+  keys();
+}
+$$('#plat button').forEach(b=>b.onclick=()=>setPlat(b.dataset.p));
+$$('#state button').forEach(b=>b.onclick=()=>setState(b.dataset.s));
+$('#bSide').onclick=()=>{$('#side').classList.toggle('hidden');$('#bSide').classList.toggle('on')};
+function closeMenus(){$$('.menu').forEach(x=>x.classList.remove('open'));$('#bOpen').classList.remove('on');$('#bMore').classList.remove('on')}
+function menu(btn,m){$(btn).onclick=e=>{e.stopPropagation();const open=$(m).classList.contains('open');closeMenus();if(!open){$(m).classList.add('open');$(btn).classList.add('on')}}}
+menu('#bOpen','#mOpen'); menu('#bMore','#mMore');
+document.addEventListener('click',closeMenus);
+const toggleFind=()=>{if($('#bFind').disabled)return;$('#find').classList.toggle('open');$('#bFind').classList.toggle('on');if($('#find').classList.contains('open'))$('#find input').select()};
+$('#bFind').onclick=toggleFind; $('#bFindX').onclick=toggleFind;
+$('#bDrop').onclick=()=>{$('#drop').classList.toggle('on');$('#bDrop').classList.toggle('on')};
+$('#bReload').onclick=()=>{const t=$('#toast');t.classList.add('on');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('on'),2400)};
+$('#bAnn').onclick=()=>{$('#win').classList.toggle('annot');$('#bAnn').classList.toggle('on')};
+$('#bTheme').onclick=()=>{const r=document.documentElement;const dark=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;r.dataset.theme=dark?'light':'dark'};
+document.addEventListener('keydown',e=>{const m=e.metaKey||e.ctrlKey;
+  if(m&&e.key==='f'){e.preventDefault();toggleFind()}
+  if(m&&e.key==='b'){e.preventDefault();$('#bSide').click()}
+  if(e.key==='Escape'){closeMenus();$('#find').classList.remove('open');$('#bFind').classList.remove('on')}});
+const W=$('#win');let depth=0;
+W.addEventListener('dragenter',e=>{e.preventDefault();depth++;$('#drop').classList.add('on')});
+W.addEventListener('dragover',e=>e.preventDefault());
+W.addEventListener('dragleave',()=>{if(--depth<=0){depth=0;$('#drop').classList.remove('on')}});
+W.addEventListener('drop',e=>{e.preventDefault();depth=0;$('#drop').classList.remove('on');
+  const fs=[...(e.dataTransfer.files||[])].filter(f=>/\.(md|markdown|mdown|txt)$/i.test(f.name));
+  if(fs.length){if(state==='empty')state='files';fs.forEach(f=>tabs.push({n:f.name}));cur=tabs.length-1;setState(state,true)}});
+setPlat('linux'); setState('folder');
+</script>
+</body>
+</html>
