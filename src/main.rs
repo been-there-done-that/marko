@@ -1,4 +1,4 @@
-//! Rune Markdown: a light Markdown viewer.
+//! Marko: a fast, light Markdown viewer and editor.
 
 mod app;
 mod background;
@@ -38,8 +38,13 @@ use app::{AppState, Job, MenuKind};
 use session::{InstanceLock, SaveDebounce, Session};
 use watch::{FileEvent, Watcher};
 
-/// The app id; its prefs folder holds the session.
-const APP_ID: &str = "dev.rune.markdown";
+/// The app id; its prefs folder holds the session and the user's themes.
+const APP_ID: &str = "dev.marko.app";
+/// The id the app had before it was named Marko; its prefs move over on the first launch.
+const OLD_APP_ID: &str = "dev.rune.markdown";
+/// The window class (X11 `WM_CLASS`, Wayland `app_id`) the desktop matches to `marko.desktop`
+/// and its icon.
+const WINDOW_CLASS: &str = "marko";
 /// How long a changed session waits before it is saved. Slightly longer than the debounce's
 /// own quiet period, so the wake-up that checks it always finds it due.
 const SAVE_WAKE: Duration = Duration::from_millis(1100);
@@ -247,6 +252,8 @@ fn main() {
         gpu_env::apply();
     }
     rune::prewarm_gpu();
+    rune::set_app_id(WINDOW_CLASS);
+    session::migrate_prefs(&Prefs::open(OLD_APP_ID), &Prefs::open(APP_ID));
     // Read before the window opens, so the first frame already has the reader's theme and fonts.
     settings::set_initial(session::settings_of(&session::load(&Prefs::open(APP_ID))));
 
@@ -257,7 +264,7 @@ fn main() {
         on_key: Some(ui::keys::on_key),
         poll: Some(poll),
         scenes: SCENES,
-        ..AppSpec::new("Markdown", (1100.0, 760.0), AppState::new, ui::view)
+        ..AppSpec::new("Marko", (1100.0, 760.0), AppState::new, ui::view)
     };
     let mut options = rune::WindowOptions::default();
     if let Some((position, size)) = frame {

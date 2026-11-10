@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Marko
+GenericName=Markdown Viewer
+Comment=Read and edit Markdown files
+Exec=marko %F
+Icon=marko
+Terminal=false
+MimeType=text/markdown;text/x-markdown;
+Categories=Utility;TextEditor;Office;
+Keywords=markdown;md;notes;viewer;editor;
+StartupNotify=true
+StartupWMClass=marko

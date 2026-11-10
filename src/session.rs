@@ -164,6 +164,28 @@ pub fn restore(s: &mut AppState, session: Session, now: f64) {
     s.recent = recent;
 }
 
+/// Moves the prefs folder of an older app id (`from`) to the current one (`to`) on the first
+/// launch under the new id: the session file and the `themes/` folder are copied, and the old
+/// folder is left as it was. Nothing happens when `to` already has a file, or `from` has none.
+pub fn migrate_prefs(from: &Prefs, to: &Prefs) {
+    let (Some(old), Some(new)) = (from.path(), to.path()) else { return };
+    if new.exists() || !old.is_file() {
+        return;
+    }
+    let (Some(old_dir), Some(new_dir)) = (old.parent(), new.parent()) else { return };
+    if std::fs::create_dir_all(new_dir).is_err() || std::fs::copy(old, new).is_err() {
+        return;
+    }
+    let themes = old_dir.join("themes");
+    if let Ok(entries) = std::fs::read_dir(&themes) {
+        let dest = new_dir.join("themes");
+        let _ = std::fs::create_dir_all(&dest);
+        for entry in entries.flatten() {
+            let _ = std::fs::copy(entry.path(), dest.join(entry.file_name()));
+        }
+    }
+}
+
 /// The saved session, or the default when none is stored or it doesn't parse.
 pub fn load(prefs: &Prefs) -> Session {
     prefs.get(KEY).unwrap_or_default()
@@ -172,7 +194,7 @@ pub fn load(prefs: &Prefs) -> Session {
 /// Stores the session. A failed write is reported on stderr; the session stays in memory.
 pub fn save(prefs: &mut Prefs, session: &Session) {
     if let Err(e) = prefs.set(KEY, session) {
-        eprintln!("rune-markdown: {e}");
+        eprintln!("marko: {e}");
     }
 }
 

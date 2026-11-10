@@ -26,7 +26,7 @@ pub fn fetch(url: &str) -> Result<Vec<u8>, String> {
 
 fn fetch_with(url: &str, cap: u64, timeout: Duration) -> Result<Vec<u8>, String> {
     check_url(url)?;
-    let agent = ureq::AgentBuilder::new().timeout(timeout).user_agent("rune-markdown").build();
+    let agent = ureq::AgentBuilder::new().timeout(timeout).user_agent("marko").build();
     let resp = agent.get(url.trim()).call().map_err(|e| e.to_string())?;
     let too_large = || format!("too large (over {} MB)", cap / (1024 * 1024));
     if resp.header("content-length").and_then(|v| v.parse::<u64>().ok()).is_some_and(|n| n > cap) {

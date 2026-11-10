@@ -1,4 +1,4 @@
-# Rune Markdown — plan
+# Marko — plan
 
 A small, fast desktop Markdown app built on Rune. Phase 1 is a **viewer**; phase 2 adds **editing** on the same renderer.
 
@@ -258,7 +258,7 @@ Handle these in `AppSpec::on_key` (`tooling.rs:17`). `App::global_shortcut` regi
 - **Files**, from the dialog, a drop, the CLI or Recent: each opens in a new tab, appended after the active tab, and the last one becomes active. Paths already open are focused instead.
 - **Folders**: each becomes a new sidebar root, unless it is already a root or inside one, in which case reveal it. If no tab is open, open the folder's `README.md` (any case) or, failing that, its first Markdown file.
 - **A mix in one drop**: folders go to the sidebar and files to tabs.
-- **CLI**: `rune-markdown [paths…]`. Directories are treated as folders and files as files. The last session (§5.4) is always restored first, and any paths given are then added, following the same rule as D3. With no arguments, only the session is restored. *(Builder's call.)*
+- **CLI**: `marko [paths…]`. Directories are treated as folders and files as files. The last session (§5.4) is always restored first, and any paths given are then added, following the same rule as D3. With no arguments, only the session is restored. *(Builder's call.)*
 - **macOS "Open With" and Finder double-click**: Rune has no open-documents event today (`on_open_url` covers URL schemes only). File it as a Rune PR in phase 1c: an `App::on_open_files` handler wired to `application:openURLs:` with file URLs. Until it lands, CLI and drop are the paths in.
 - **Second launch**: `rune::single_instance(id)` only works on Windows. Phase 1 opens a second window/process; forwarding paths to the first instance is phase 1c, a small socket under the user runtime dir.
   - Until forwarding lands, only the process that holds an exclusive lock file in the config dir saves the session. A second process runs normally but never writes the session, so the two can't overwrite each other's tabs. Recent files are still merged on write. *(Builder's call.)*
@@ -278,7 +278,7 @@ Handle these in `AppSpec::on_key` (`tooling.rs:17`). `App::global_shortcut` regi
 - **Remote images (`https://…`):** off by default and shown as a placeholder: "Remote image · Load". Allow per-document or globally in Appearance. Reason: privacy and lightness.
 
 ### 5.4 Session and prefs
-- Use `rune::prefs::Prefs::open("dev.rune.markdown")` (`rune/src/prefs.rs:55`). It stores JSON in the user config dir:
+- Use `rune::prefs::Prefs::open("dev.marko.app")` (`rune/src/prefs.rs:55`). It stores JSON in the user config dir:
   - open tabs (paths + scroll offsets) and the active index;
   - sidebar roots plus expanded folders;
   - sidebar visible; zoom; wide column; appearance; recent (16 max, de-duplicated);
@@ -301,7 +301,7 @@ Handle these in `AppSpec::on_key` (`tooling.rs:17`). `App::global_shortcut` regi
 
 ### 6.1 Repository
 ```
-rune-markdown/
+marko/
   Cargo.toml          # rune, rune-kit (features: markdown, mermaid), notify, ignore, image
   src/
     main.rs           # args → App::new(spec).titlebar(..).on_ready(..).run()
@@ -548,7 +548,7 @@ Rules:
 | Q1 | ~~Wayland drops~~ | **Decided (D10):** ship on X11, native Wayland drops later. |
 | Q2 | Remote images off by default: OK? | Owner. Default off. |
 | Q3 | Math in v1, and how much (source-styled vs typeset)? | Owner. Default: source-styled, behind a flag. |
-| Q4 | App name, bundle id and icon. | Owner. Placeholder `rune-markdown`, `dev.rune.markdown`. |
+| Q4 | App name, bundle id and icon. | Resolved: **Marko**, binary `marko`, prefs id `dev.marko.app`, window class `marko`, icon in `packaging/icons`. |
 | R-a | Wayland CSD has no shadow or rounded corners in v1, so it looks flatter than on macOS and Windows. | Accept for v1; follow-up in Rune. |
 | R-b | Without virtualization, very long docs may miss 120 Hz. | Measure in 1c; R8. |
 | R-c | `notify` misses events on some network filesystems. | Use the `PollWatcher` fallback with a 2s interval when the path is on NFS/SMB. |

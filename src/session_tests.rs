@@ -206,3 +206,27 @@ fn a_session_without_a_frame_still_loads() {
     let s: Session = serde_json::from_str(json).unwrap();
     assert_eq!(s.frame, None);
 }
+
+#[test]
+fn migrate_prefs_copies_session_and_themes_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let old_path = dir.path().join("old").join("prefs.json");
+    let new_path = dir.path().join("new").join("prefs.json");
+    let mut old = Prefs::at(&old_path);
+    let mut saved = Session::default();
+    saved.zoom = 1.5;
+    save(&mut old, &saved);
+    std::fs::create_dir_all(dir.path().join("old/themes")).unwrap();
+    std::fs::write(dir.path().join("old/themes/mine.json"), "{}").unwrap();
+
+    migrate_prefs(&old, &Prefs::at(&new_path));
+    assert_eq!(load(&Prefs::at(&new_path)).zoom, 1.5);
+    assert!(dir.path().join("new/themes/mine.json").is_file());
+
+    // A second launch keeps what the new folder has.
+    let mut changed = Session::default();
+    changed.zoom = 0.8;
+    save(&mut Prefs::at(&new_path), &changed);
+    migrate_prefs(&old, &Prefs::at(&new_path));
+    assert_eq!(load(&Prefs::at(&new_path)).zoom, 0.8);
+}

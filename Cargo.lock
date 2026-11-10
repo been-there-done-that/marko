@@ -1634,6 +1634,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
+name = "marko"
+version = "0.1.0"
+dependencies = [
+ "ignore",
+ "image",
+ "libc",
+ "notify",
+ "procwatch",
+ "pulldown-cmark",
+ "rune",
+ "rune-kit",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ureq",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2894,24 +2912,6 @@ dependencies = [
  "rune-mermaid",
  "rune-motion",
  "unicode-segmentation",
-]
-
-[[package]]
-name = "rune-markdown"
-version = "0.1.0"
-dependencies = [
- "ignore",
- "image",
- "libc",
- "notify",
- "procwatch",
- "pulldown-cmark",
- "rune",
- "rune-kit",
- "serde",
- "serde_json",
- "tempfile",
- "ureq",
 ]
 
 [[package]]

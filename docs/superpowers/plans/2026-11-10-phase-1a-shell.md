@@ -1,4 +1,4 @@
-# Rune Markdown — Phase 1a (App Shell) Implementation Plan
+# Marko — Phase 1a (App Shell) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. If you are not Claude Code (opencode, Codex, …), just work the tasks in order: one task, its tests green, one commit, then the next.
 
@@ -40,7 +40,7 @@
 - Folder scan ignores: `.git`, `node_modules`, `target`, `.venv`, every dot-folder, and `.gitignore` rules.
 - Size limits: refuse files > **50 MB**; mark files > **5 MB** as large; refuse binary files (a NUL byte in the first **8192** bytes).
 - Recent list: at most **16** entries, newest first, de-duplicated by canonical path.
-- Prefs app id: **`dev.rune.markdown`**.
+- Prefs app id: **`dev.marko.app`** (was `dev.rune.markdown`; migrated on first launch).
 - Linux (decision D10): at the very top of `main`, before anything else, remove `WAYLAND_DISPLAY` from the environment so winit uses X11 (drag-and-drop works there).
 - Linux (D11 fallback): keep the native frame. Use **no** `borderless`. The 40pt band sits under the system title bar until the phase-0 Rune PR lands.
 - No UI thread blocking: no `std::fs` read inside `view` or a press handler. Handlers call into the worker (Task 5) or into pure functions on data already in memory.
@@ -99,7 +99,7 @@ fixtures/              # small .md files used by tests and scenes
   - `pub fn display_titles(paths: &[PathBuf]) -> Vec<String>`. Returns the file name; when two or more share a file name, each gets `"{name} — {parent_dir_name}"`.
 
 - [ ] **Step 1:** `git init`. Write `Cargo.toml`:
-  - package `rune-markdown`, `edition = "2024"`;
+  - package `marko`, `edition = "2024"`;
   - dependencies exactly as in Global Constraints, plus `serde = { version = "1", features = ["derive"] }`, `serde_json = "1"`, `ignore = "0.4"`;
   - dev-dependency `tempfile = "3"`;
   - `[profile.release] lto = "thin"`, `strip = true`.
@@ -400,7 +400,7 @@ fixtures/              # small .md files used by tests and scenes
 4. `App::new(spec).titlebar(Titlebar::new(40.0))`. On macOS, also `.standard_menus()`.
 5. Get a `handle`, then in `.on_ready(...)`:
    - spawn the worker;
-   - take the `primary_lock` from the Prefs dir (`Prefs::open("dev.rune.markdown").path()`'s parent);
+   - take the `primary_lock` from the Prefs dir (`Prefs::open("dev.marko.app").path()`'s parent);
    - `session::restore`, then `open_paths(cli_paths)`, where `cli_paths` are `std::env::args_os().skip(1)` filtered with `rune::extra_args()` excluded. Read `rune/src/tooling.rs:130` for which args Rune consumes.
 6. `.run()`.
 

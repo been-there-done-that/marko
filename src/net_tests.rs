@@ -45,7 +45,7 @@ fn fetch_returns_the_body_and_names_itself() {
     let (url, server) = serve(ok(b"hello"));
     assert_eq!(fetch(&url).unwrap(), b"hello");
     let req = server.join().unwrap().to_ascii_lowercase();
-    assert!(req.contains("user-agent: rune-markdown"), "{req}");
+    assert!(req.contains("user-agent: marko"), "{req}");
 }
 
 #[test]

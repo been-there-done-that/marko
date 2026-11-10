@@ -38,6 +38,6 @@ fn load_dir_reads_good_files_and_names_bad_ones() {
 
 #[test]
 fn missing_dir_is_empty() {
-    let (themes, errors) = load_dir(Path::new("/nonexistent/rune-markdown-themes"));
+    let (themes, errors) = load_dir(Path::new("/nonexistent/marko-themes"));
     assert!(themes.is_empty() && errors.is_empty());
 }
