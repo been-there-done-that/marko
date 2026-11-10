@@ -10,8 +10,11 @@ use crate::app::{AppState, Lightbox};
 pub fn open_on_press(image: El, frame: &ImageFrame<'_>) -> El {
     let picture = frame.image.clone();
     let alt = frame.alt.to_string();
-    // The Markdown renderer keys what this returns, so the key goes on an inner wrapper.
-    let inner = col().key("doc-image").w_full().child(image.on_press(move |s: &mut AppState| {
+    // The Markdown renderer keys what this returns, so the key goes on an inner wrapper. The
+    // wrapper is capped at the picture's own width: the picture's height follows its box's width,
+    // and a full-width box would leave a gap under a picture narrower than the column.
+    let own_w = frame.image.size().map_or(f32::INFINITY, |[w, _]| w as f32);
+    let inner = col().key("doc-image").w_full().max_w(own_w).child(image.on_press(move |s: &mut AppState| {
         s.lightbox = Some(Lightbox { image: picture.clone(), alt: alt.clone() });
     }));
     col().w_full().child(inner)
