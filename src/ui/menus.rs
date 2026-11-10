@@ -44,18 +44,18 @@ pub fn open_folder_dialog(tx: &mut Tx) {
     });
 }
 
-fn open_file(s: &mut AppState, tx: &mut Tx) {
+pub(super) fn open_file(s: &mut AppState, tx: &mut Tx) {
     s.menu = None;
     open_file_dialog(tx);
 }
 
-fn open_folder(s: &mut AppState, tx: &mut Tx) {
+pub(super) fn open_folder(s: &mut AppState, tx: &mut Tx) {
     s.menu = None;
     open_folder_dialog(tx);
 }
 
 /// Opens a Recent entry. One that no longer exists is dropped from the list instead.
-fn pick_recent(s: &mut AppState, path: &Path) {
+pub(super) fn pick_recent(s: &mut AppState, path: &Path) {
     s.menu = None;
     if path.exists() {
         let now = s.now;

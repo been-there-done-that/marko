@@ -11,12 +11,6 @@ fn chord(ev: &KeyEvent, c: char, shift: bool) -> bool {
     ev.is_command(c) && ev.mods.shift == shift
 }
 
-/// A bare R, typed with no modifier but ⇧.
-fn is_reload(ev: &KeyEvent) -> bool {
-    let m = ev.mods;
-    matches!(&ev.key, Key::Text(t) if matches!(t.as_str(), "r" | "R")) && !m.cmd && !m.ctrl && !m.alt && !m.logo
-}
-
 /// Handles a key press. Returns true only when the key did something.
 pub fn on_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
     if matches!(ev.key, Key::Escape) {
@@ -26,7 +20,7 @@ pub fn on_key(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         s.tabs.cycle(!ev.mods.shift);
         return true;
     }
-    if is_reload(ev) {
+    if chord(ev, 'r', false) {
         return reload_active(s);
     }
     if chord(ev, 'o', false) {

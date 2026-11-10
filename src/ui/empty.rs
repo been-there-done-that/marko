@@ -1,45 +1,16 @@
 //! The empty state (§4.9): shown when no tab is open. Open File and Open Folder, and a Recent card.
 
-use std::path::PathBuf;
-
-use rune::{El, FileDialogOptions, Tx, col, el, icon, row, text, TextStyle};
+use rune::{El, Tx, col, el, icon, row, text, TextStyle};
 use rune_kit::Kit;
 
 use crate::app::AppState;
 use crate::icons;
 use crate::theme::{self, Tokens};
+use crate::ui::menus::{open_file, open_folder, pick_recent};
 use crate::ui::titlebar::chord;
 
 /// Recent entries the empty state lists.
 const RECENT_SHOWN: usize = 5;
-/// Extensions the Open File dialog offers.
-const MARKDOWN_EXTS: &[&str] = &["md", "markdown", "mdown", "mkd", "txt"];
-
-fn open_file(_s: &mut AppState, tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Open Markdown".into(), ..Default::default() }.filter("Markdown", MARKDOWN_EXTS);
-    tx.open_file(options, |s: &mut AppState, r, _: &mut Tx| {
-        let now = s.now;
-        s.dialog_answer(r, now);
-    });
-}
-
-fn open_folder(_s: &mut AppState, tx: &mut Tx) {
-    let options = FileDialogOptions { title: "Open Folder".into(), ..Default::default() };
-    tx.open_folder(options, |s: &mut AppState, r, _: &mut Tx| {
-        let now = s.now;
-        s.dialog_answer(r, now);
-    });
-}
-
-/// Opens a Recent entry. One that no longer exists is dropped from the list instead.
-fn pick_recent(s: &mut AppState, path: &PathBuf) {
-    if path.exists() {
-        let now = s.now;
-        s.open_paths(std::slice::from_ref(path), now);
-    } else {
-        s.recent.retain(|p| p != path);
-    }
-}
 
 /// A primary (accent) or secondary button, with its shortcut after the label.
 fn button(key: &str, label: &str, shortcut: String, primary: bool, t: &Tokens, k: &Kit) -> El {

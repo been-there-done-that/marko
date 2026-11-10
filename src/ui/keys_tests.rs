@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use rune::{Env, Key, KeyEvent, Mods, Runtime};
 
-use crate::app::{AppState, MenuKind};
+use crate::app::{AppState, Job, MenuKind};
+use crate::load::DocState;
 use crate::ui::keys::on_key;
 use crate::ui::view;
 
@@ -101,4 +102,24 @@ fn escape_closes_menu() {
     rt.state.menu = Some(MenuKind::Open);
     send(&mut rt, KeyEvent { key: Key::Escape, mods: Mods::default() });
     assert_eq!(rt.state.menu, None);
+}
+
+#[test]
+fn cmd_r_reloads_active_tab() {
+    let mut rt = runtime(AppState::new());
+    rt.state.open_paths(&[fixture("basic.md")], 0.0);
+    rt.state.jobs.clear();
+    let id = rt.state.tabs.active().map(|t| t.id).unwrap();
+    send(&mut rt, cmd('r'));
+    assert!(rt.state.jobs.iter().any(|j| matches!(j, Job::Load { tab, .. } if *tab == id)));
+    assert!(matches!(rt.state.tabs.active().map(|t| &t.doc), Some(DocState::Loading)));
+}
+
+#[test]
+fn bare_r_does_nothing() {
+    let mut rt = runtime(AppState::new());
+    rt.state.open_paths(&[fixture("basic.md")], 0.0);
+    rt.state.jobs.clear();
+    send(&mut rt, KeyEvent { key: Key::Text("r".into()), mods: Mods::default() });
+    assert!(rt.state.jobs.is_empty());
 }

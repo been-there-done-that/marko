@@ -14,8 +14,167 @@ mod theme;
 mod ui;
 mod worker;
 
-use rune::AppSpec;
+use std::path::PathBuf;
+use std::sync::mpsc::Sender;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+use rune::prefs::Prefs;
+use rune::{AppHandle, AppSpec, Tx};
+
+use app::{AppState, Job, MenuKind};
+use session::{InstanceLock, SaveDebounce};
+
+/// The app id; its prefs folder holds the session.
+const APP_ID: &str = "dev.rune.markdown";
+/// How long a changed session waits before it is saved. Slightly longer than the debounce's
+/// own quiet period, so the wake-up that checks it always finds it due.
+const SAVE_WAKE: Duration = Duration::from_millis(1100);
+
+/// The worker's job queue. Set once the window is ready.
+static JOBS: OnceLock<Sender<Job>> = OnceLock::new();
+/// Saving state, set once the window is ready.
+static PERSIST: OnceLock<Mutex<Persist>> = OnceLock::new();
+
+struct Persist {
+    prefs: Prefs,
+    /// Held by the one process that saves. None in the others, and in headless renders,
+    /// which never reach `on_ready`.
+    primary: Option<InstanceLock>,
+    /// The session as last seen by `poll`, as JSON, to tell when anything changed.
+    last: String,
+    debounce: SaveDebounce,
+}
+
+/// Runs queued jobs on this thread. Scenes render without a worker, so they settle their loads here.
+fn settle(s: &mut AppState) {
+    while !s.jobs.is_empty() {
+        for job in std::mem::take(&mut s.jobs) {
+            worker::run_job(job).apply(s);
+        }
+    }
+}
+
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
+}
+
+fn scene_folder(s: &mut AppState) {
+    let dir = fixtures();
+    s.open_paths(&[dir.clone(), dir.join("basic.md")], 0.0);
+    settle(s);
+}
+
+fn scene_files(s: &mut AppState) {
+    let dir = fixtures();
+    s.open_paths(&[dir.join("basic.md"), dir.join("frontmatter.md")], 0.0);
+    settle(s);
+}
+
+static SCENES: &'static [(&'static str, fn(&mut AppState))] = &[
+    ("empty", |_: &mut AppState| {}),
+    ("folder", scene_folder),
+    ("files", scene_files),
+    ("menu-open", |s: &mut AppState| s.menu = Some(MenuKind::Open)),
+    ("drop", |s: &mut AppState| s.drop_hover = true),
+];
 
 fn main() {
-    rune::run(AppSpec::<app::AppState> { ..AppSpec::new("Markdown", (1100.0, 760.0), app::AppState::new, ui::view) });
+    // SAFETY: single-threaded, before any thread starts, so nothing else reads or writes the environment.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::remove_var("WAYLAND_DISPLAY");
+    }
+    rune::prewarm_gpu();
+
+    let spec = AppSpec {
+        min_size: Some((560.0, 400.0)),
+        on_key: Some(ui::keys::on_key),
+        poll: Some(poll),
+        scenes: SCENES,
+        ..AppSpec::new("Markdown", (1100.0, 760.0), AppState::new, ui::view)
+    };
+    let app = rune::App::new(spec).titlebar(rune::Titlebar::new(theme::BAR_H));
+    #[cfg(target_os = "macos")]
+    let app = app.standard_menus();
+    let mut ready_handle = Some(app.handle());
+    app.on_ready(move |_| {
+        if let Some(handle) = ready_handle.take() {
+            start(handle);
+        }
+    })
+    .run();
+}
+
+/// Runs once the window is up: starts the worker, takes the primary lock, restores the saved
+/// session, then opens the paths given on the command line.
+fn start(handle: AppHandle<AppState>) {
+    let _ = JOBS.set(worker::spawn_worker(handle.clone()));
+
+    let prefs = Prefs::open(APP_ID);
+    let saved = session::load(&prefs);
+    let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
+    let _ = PERSIST.set(Mutex::new(Persist { prefs, primary, last: String::new(), debounce: SaveDebounce::default() }));
+
+    let cli: Vec<PathBuf> = rune::extra_args().iter().map(PathBuf::from).collect();
+    handle.update(move |s, _| {
+        let now = s.now;
+        session::restore(s, saved, now);
+        s.open_paths(&cli, now);
+    });
+}
+
+/// Once per frame: hands queued jobs to the worker, clears an expired toast, and saves the
+/// session once it has been quiet for a while. Returns true only when the screen changed.
+fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
+    s.now = now;
+    if let Some(jobs) = JOBS.get() {
+        for job in s.jobs.drain(..) {
+            let _ = jobs.send(job);
+        }
+    }
+    let cleared = s.tick(now);
+    if let Some(toast) = &s.toast {
+        tx.wake_after(Duration::from_secs_f64((toast.until - now).max(0.0)));
+    }
+
+    if let Some(persist) = PERSIST.get() {
+        let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
+        if p.primary.is_some() {
+            let snapshot = session::capture(s);
+            let json = serde_json::to_string(&snapshot).unwrap_or_default();
+            if json != p.last {
+                p.last = json;
+                p.debounce.touch(now);
+                // Without a frame scheduled, no poll would come to save a change.
+                tx.wake_after(SAVE_WAKE);
+            }
+            if p.debounce.due(now) {
+                session::save(&mut p.prefs, &snapshot);
+            }
+        }
+    }
+    cleared
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scenes_are_unique_names() {
+        let mut names: Vec<&str> = SCENES.iter().map(|(n, _)| *n).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), SCENES.len());
+    }
+
+    #[test]
+    fn folder_scene_opens_root_and_file() {
+        let mut s = AppState::new();
+        scene_folder(&mut s);
+        assert_eq!(s.sidebar.roots.len(), 1);
+        assert_eq!(s.tabs.iter().count(), 1);
+        assert!(s.jobs.is_empty());
+    }
 }
