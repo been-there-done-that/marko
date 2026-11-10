@@ -87,7 +87,8 @@ pub fn capture(s: &AppState) -> Session {
         appearance: "system".into(),
         recent: s.recent.clone(),
         frame: None,
-        settings: Some(s.settings.clone()),
+        // Settings are shared through settings.json (settings_sync), not the session.
+        settings: None,
     }
 }
 
@@ -139,7 +140,6 @@ pub fn restore(s: &mut AppState, session: Session, now: f64) {
     s.sidebar.visible = session.sidebar_visible;
     s.zoom = if session.zoom > 0.0 { session.zoom } else { 1.0 };
     s.wide = session.wide;
-    s.settings = settings_of(&session);
     if s.settings.startup == Startup::Empty {
         s.recent = recent;
         return;

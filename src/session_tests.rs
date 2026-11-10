@@ -45,8 +45,6 @@ fn capture_then_restore_round_trips() {
     assert_eq!(r.sidebar.roots[0].path, canonical(&folder));
     assert_eq!(r.zoom, 1.25);
     assert!(r.wide);
-    assert_eq!(r.settings.theme, "nordic");
-    assert_eq!(r.settings.text_size, 18.0);
     assert!(!r.sidebar.visible);
     assert_eq!(r.recent, s.recent);
 }
@@ -173,8 +171,8 @@ fn empty_startup_skips_tabs_but_keeps_settings() {
     let a = write(dir.path(), "a.md");
     let mut s = AppState::new();
     s.open_paths(std::slice::from_ref(&a), 0.0);
-    s.settings.startup = Startup::Empty;
     let mut r = AppState::new();
+    r.settings.startup = Startup::Empty;
     restore(&mut r, capture(&s), 0.0);
     assert!(r.tabs.is_empty());
     assert_eq!(r.settings.startup, Startup::Empty);

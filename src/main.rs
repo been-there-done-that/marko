@@ -1,5 +1,8 @@
 //! Marko: a fast, light Markdown viewer and editor.
 
+// A release build on Windows opens no console window beside the app.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
 mod background;
 mod commands;
@@ -16,6 +19,7 @@ mod paths;
 mod progress;
 mod session;
 mod settings;
+mod settings_sync;
 mod sidebar;
 mod stats;
 mod tabs;
@@ -241,6 +245,17 @@ static SCENES: &[Scene] = &[
     ("lightbox", scene_lightbox),
     ("theme-paper", |s: &mut AppState| { scene_basic(s); s.settings.theme = "paper".into(); }),
     ("palette", scene_palette),
+    ("tree-dark", |s: &mut AppState| {
+        let root = fixtures().join("..").join("docs");
+        s.open_paths(&[root], 0.0);
+        settle(s);
+        if let Some(r) = s.sidebar.roots.first_mut() {
+            r.tree.expand_all();
+        }
+        s.settings.theme = "dark".into();
+    }),
+    ("folder-dark", |s: &mut AppState| { scene_folder(s); s.settings.theme = "dark".into(); }),
+    ("background-folder-dark", |s: &mut AppState| { scene_background(s); s.settings.theme = "dark".into(); s.settings.background.blur = 0.0; }),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
 
@@ -253,12 +268,26 @@ fn main() {
     }
     rune::prewarm_gpu();
     rune::set_app_id(WINDOW_CLASS);
-    session::migrate_prefs(&Prefs::open(OLD_APP_ID), &Prefs::open(APP_ID));
-    // Read before the window opens, so the first frame already has the reader's theme and fonts.
-    settings::set_initial(session::settings_of(&session::load(&Prefs::open(APP_ID))));
-
-    // Reopen where the window was left, when the saved frame is sane.
-    let frame = session::load(&Prefs::open(APP_ID)).frame.and_then(session::usable_frame);
+    // A `--snap` render draws a scene from defaults: the reader's saved settings and window
+    // place would make it depend on the machine.
+    let headless = std::env::args().any(|a| a == "--snap" || a.starts_with("--snap="));
+    let mut frame = None;
+    if !headless {
+        session::migrate_prefs(&Prefs::open(OLD_APP_ID), &Prefs::open(APP_ID));
+        // Read before the window opens, so the first frame already has the reader's theme and
+        // fonts. Settings shared by every window come from settings.json; a profile from before
+        // that file existed takes them from its saved session.
+        let prefs = Prefs::open(APP_ID);
+        let saved = session::load(&prefs);
+        let shared = prefs.path().and_then(|p| p.parent()).and_then(settings_sync::read);
+        if let Some(shared) = &shared {
+            // Already on disk: nothing to write until it changes.
+            settings_sync::start_with(shared);
+        }
+        settings::set_initial(shared.unwrap_or_else(|| session::settings_of(&saved)));
+        // Reopen where the window was left, when the saved frame is sane.
+        frame = saved.frame.and_then(session::usable_frame);
+    }
     let spec = AppSpec {
         min_size: Some((560.0, 400.0)),
         on_key: Some(ui::keys::on_key),
@@ -297,6 +326,9 @@ fn start(handle: AppHandle<AppState>) {
     }
 
     let mut prefs = Prefs::open(APP_ID);
+    if let Some(config) = prefs.path().and_then(|p| p.parent()) {
+        settings_sync::spawn(config.to_path_buf(), handle.clone());
+    }
     if let Some(dir) = prefs.path().and_then(|p| p.parent()).map(|d| d.join("themes")) {
         let themes_handle = handle.clone();
         let _ = thread::Builder::new().name("themes".into()).spawn(move || {
@@ -340,6 +372,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.sync_edit_images();
     ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
+    settings_sync::tick(s, tx);
     let bg_changed = background::tick(s, now, tx);
     let progress_changed = s.sync_doc_scroll();
     if let Some(watcher) = WATCHER.get() {

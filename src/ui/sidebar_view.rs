@@ -68,7 +68,7 @@ fn key(s: &AppState, item: Item) -> String {
 
 fn section_text(k: &Kit, t: &Tokens, label: &str) -> El {
     let style = TextStyle { size: 11.0, weight: 600.0, tracking: 0.44, ..k.ty.small };
-    text(label.to_uppercase()).font(style).color(t.fg3)
+    text(label.to_uppercase()).font(style).color(t.fg2)
 }
 
 fn head(s: &AppState, k: &Kit, t: &Tokens, item: Item) -> El {

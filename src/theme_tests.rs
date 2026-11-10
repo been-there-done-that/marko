@@ -80,3 +80,13 @@ fn text_size_and_code_font_reach_the_style() {
     s.code_font.clear();
     assert_eq!(code_font(k, &s).family, k.ty.mono.family);
 }
+
+#[test]
+fn faint_text_lifts_over_a_picture() {
+    let mut s = with_theme("dark");
+    let solid = look(&s, &[], true);
+    s.background.path = Some("/pic.png".into());
+    let over = look(&s, &[], true);
+    assert_eq!(over.tokens.fg3, solid.tokens.fg2);
+    assert!(over.tokens.fg2.r > solid.tokens.fg2.r, "fg2 moves toward fg");
+}

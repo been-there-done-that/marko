@@ -42,6 +42,12 @@ fn col_of(s: &str) -> Color {
     rune::color::hex(s).unwrap_or(Color::WHITE)
 }
 
+/// `a` moved `t` of the way to `b` (0 is `a`, 1 is `b`), alpha included.
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    let l = |x: f32, y: f32| x + (y - x) * t;
+    Color { r: l(a.r, b.r), g: l(a.g, b.g), b: l(a.b, b.b), a: l(a.a, b.a) }
+}
+
 /// Everything a frame draws with: the kit, the app's own tokens and the code colours, for one
 /// theme, accent and panel opacity.
 pub struct Look {
@@ -64,14 +70,20 @@ fn build_look(def: &ThemeDef, accent: Option<Color>, panel_alpha: f32) -> Look {
     } else {
         (fg.alpha(0.055), fg.alpha(0.09))
     };
+    // Over a background picture the faintest text loses its contrast: lift each step one notch.
+    let (fg2, fg3) = if panel_alpha < 1.0 {
+        (mix(col_of(&def.fg2), fg, 0.35), col_of(&def.fg2))
+    } else {
+        (col_of(&def.fg2), col_of(&def.fg3))
+    };
     let tokens = Tokens {
         bar: col_of(&def.bar).alpha(panel_alpha),
         side: col_of(&def.side).alpha(panel_alpha),
         line: col_of(&def.line),
         line_strong: col_of(&def.line_strong),
         fg,
-        fg2: col_of(&def.fg2),
-        fg3: col_of(&def.fg3),
+        fg2,
+        fg3,
         hover,
         press,
         accent,
@@ -157,7 +169,8 @@ pub fn markdown_style(look: &Look, settings: &Settings, zoom: f32) -> MarkdownSt
         .inline_code_bg(t.code_bg)
         .code_block(t.code_bg, t.code_line)
         .quote(t.line_strong, 3.0, 16.0, t.fg2)
-        .table(t.line, t.code_bg)
+        // Over a picture the header row is as see-through as the rows under it (Rune has no row fill).
+        .table(t.line, if look.panel_alpha < 1.0 { t.code_bg.alpha(look.panel_alpha) } else { t.code_bg })
         .table_header_text(t.fg2)
         .table_header_weight(600.0)
         .table_font(table_font)
