@@ -1,12 +1,13 @@
 //! The titlebar (§4.2): sidebar toggle and Open on the left, the tab strip, Preview | Edit,
 //! Find and More on the right.
 
-use rune::{ChromeInsets, El, PointerPress, Tx, el, icon, row, text};
+use rune::{ChromeInsets, El, PointerPress, TextStyle, Tx, el, icon, row, text};
 use rune_kit::shell::{TabItem, TabItemStatus, TabOrientation, TabReorder, TabStrip, WindowTitlebar};
 use rune_kit::{IconButton, IconButtonVariant, Kit};
 
 use crate::app::{AppState, Mode, MenuKind};
 use crate::icons;
+use crate::stats;
 use crate::theme::{self, Tokens};
 use crate::ui::{editor, menus};
 
@@ -51,6 +52,12 @@ fn mode(s: &AppState, k: &Kit, t: &Tokens) -> El {
         .child(seg("mode-edit", "Edit", &icons::PENCIL, editing).on_press(|s: &mut AppState| {
             editor::enter(s);
         }))
+}
+
+/// This process's memory and CPU as plain numbers, in small text left of the mode switch.
+fn readout(s: &AppState, k: &Kit, t: &Tokens) -> El {
+    let font = TextStyle { size: 12.0, features: "'tnum' 1", ..k.ty.small };
+    text(stats::text(s.stats)).key("stats").font(font).color(t.fg3)
 }
 
 /// The titlebar band for this frame. Menus it opens are pushed into `layers`.
@@ -117,14 +124,17 @@ pub fn bar(s: &AppState, k: &Kit, dark: bool, chrome: ChromeInsets, layers: &mut
         .key("tb-more");
     let more = menus::more_menu(s, k, more, layers);
 
-    WindowTitlebar::from_insets(chrome, 1.0)
+    let mut bar = WindowTitlebar::from_insets(chrome, 1.0)
         .height(theme::BAR_H)
         .gap(4.0)
         .leading(sidebar)
         .leading(open)
         .leading(divider(t))
-        .tabs(strip)
-        .trailing(mode(s, k, t))
+        .tabs(strip);
+    if s.stats_on && s.stats_last.is_some() {
+        bar = bar.trailing(readout(s, k, t));
+    }
+    bar.trailing(mode(s, k, t))
         .trailing(divider(t))
         .trailing(find)
         .trailing(more)

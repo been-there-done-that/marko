@@ -339,6 +339,15 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
                     s.menu = None;
                 }),
         )
+        .item(
+            MenuItem::new("Show Memory and CPU")
+                .lead(lead("menu-stats", None, t.fg2))
+                .checked(s.stats_on)
+                .on_select(|s: &mut AppState| {
+                    s.stats_on = !s.stats_on;
+                    s.menu = None;
+                }),
+        )
         .separator()
         .group_label("Appearance")
         .item(appearance_item(s, "System", Appearance::System).lead(lead("menu-appearance-system", None, t.fg2)))

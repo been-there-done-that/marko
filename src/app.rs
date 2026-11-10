@@ -94,6 +94,12 @@ pub struct AppState {
     /// The editor fraction last copied to the preview. Cleared outside Edit, so re-entering it
     /// syncs again.
     pub scroll_synced: Option<f32>,
+    /// Whether the titlebar shows this process's memory and CPU (More menu).
+    pub stats_on: bool,
+    /// The numbers the readout shows, sampled by `stats::tick`.
+    pub stats: crate::stats::Stats,
+    /// The last reading, which the next CPU percentage is taken from.
+    pub stats_last: Option<crate::stats::Sample>,
 }
 
 /// The file name shown in toasts: the last path component, or the whole path when there is none.
@@ -125,6 +131,9 @@ impl AppState {
             editor_at: Live::new([0.0; 2]),
             preview_at: Live::new([0.0; 2]),
             scroll_synced: None,
+            stats_on: true,
+            stats: crate::stats::Stats::default(),
+            stats_last: None,
         }
     }
 
