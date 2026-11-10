@@ -7,6 +7,7 @@ mod icons;
 mod load;
 mod open;
 mod paths;
+mod session;
 mod sidebar;
 mod tabs;
 mod theme;
