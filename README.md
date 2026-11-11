@@ -139,7 +139,7 @@ rsvg-convert -w 1024 -h 1024 packaging/icons/marko.svg -o marko-master.png
 python3 packaging/icons/make-icons.py marko-master.png
 ```
 
-To publish a release, push a version tag (`git tag v0.1.0 && git push --tags`). The release workflow builds Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows, and attaches the archives the install scripts download.
+Releases are automatic. When CI passes on `main` and the `version` in `Cargo.toml` has no release yet, the release workflow builds Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows, tags the commit, publishes the archives the install scripts download, and then installs that release with the one-liners above on fresh machines to check it starts. To ship a new version, bump `version` in `Cargo.toml` and push.
 
 ## Known limits
 

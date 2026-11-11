@@ -1,17 +1,63 @@
-# Builds Marko for Linux, macOS and Windows when a version tag (v1.2.3) is pushed, and attaches
-# the archives to a GitHub release. install.sh and install.ps1 download these archives.
+# Releases Marko on its own. When CI passes on main and the version in Cargo.toml has no release
+# yet, this builds Linux, macOS and Windows, tags the commit v<version>, publishes a GitHub release
+# with the archives install.sh and install.ps1 download, then installs that release on fresh
+# machines with the README's one-liners to prove the downloads work.
+#
+# To ship a new version, bump `version` in Cargo.toml and push. Pushes that keep the version stop
+# after the version check. Run it by hand (Actions → release → Run workflow) to build every
+# platform without publishing.
 name: release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    # Only a push to main whose tests passed, or a run started by hand.
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.v.outputs.sha }}
+      tag: ${{ steps.v.outputs.tag }}
+      build: ${{ steps.v.outputs.build }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          tag="v$version"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          released=false
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && released=true
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then build=true; publish=false
+          elif [ "$released" = false ]; then build=true; publish=true
+          else build=false; publish=false; echo "$tag is already released"
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "version $tag at $sha: build=$build publish=$publish"
+
   build:
+    needs: version
+    if: needs.version.outputs.build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -19,11 +65,13 @@ jobs:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, asset: marko-linux-x86_64.tar.gz }
           - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, asset: marko-linux-aarch64.tar.gz }
           - { os: macos-14, target: aarch64-apple-darwin, asset: marko-macos-aarch64.tar.gz }
-          - { os: macos-13, target: x86_64-apple-darwin, asset: marko-macos-x86_64.tar.gz }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, asset: marko-macos-x86_64.tar.gz }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, asset: marko-windows-x86_64.zip }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -43,17 +91,17 @@ jobs:
           cp target/${{ matrix.target }}/release/marko $d/
           cp packaging/linux/marko.desktop $d/
           cp packaging/icons/png/*.png packaging/icons/marko.png $d/icons/
-          cp README.md LICENSE $d/ 2>/dev/null || true
+          cp README.md LICENSE $d/
           tar czf ${{ matrix.asset }} $d
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          tag="${{ needs.version.outputs.tag }}"
           app=Marko.app/Contents
           mkdir -p $app/MacOS $app/Resources
           cp target/${{ matrix.target }}/release/marko $app/MacOS/
           cp packaging/icons/marko.icns $app/Resources/
-          sed "s/VERSION/${version}/g" packaging/macos/Info.plist > $app/Info.plist
+          sed "s/VERSION/${tag#v}/g" packaging/macos/Info.plist > $app/Info.plist
           codesign --force --deep --sign - Marko.app
           tar czf ${{ matrix.asset }} Marko.app
       - name: Package (Windows)
@@ -63,16 +111,17 @@ jobs:
           New-Item -ItemType Directory marko | Out-Null
           Copy-Item target/${{ matrix.target }}/release/marko.exe marko/
           Copy-Item packaging/icons/marko.ico marko/
+          Copy-Item README.md, LICENSE marko/
           Compress-Archive -Path marko/* -DestinationPath ${{ matrix.asset }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
-  release:
-    needs: build
+  publish:
+    needs: [version, build]
+    if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -81,7 +130,46 @@ jobs:
         run: sha256sum marko-* > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ needs.version.outputs.sha }}
+          name: Marko ${{ needs.version.outputs.tag }}
           files: |
             marko-*
             SHA256SUMS
           generate_release_notes: true
+
+  # Installs the release just published the way the README says, on fresh machines, and checks
+  # the installed marko starts.
+  download-test:
+    needs: [version, publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Install with the one-liner (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${{ needs.version.outputs.sha }}/install.sh" | sh
+          "$HOME/.local/bin/marko" --list-scenes | tee scenes.txt
+          grep -qx folder scenes.txt
+      - name: Install with the one-liner (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm "https://raw.githubusercontent.com/$env:GITHUB_REPOSITORY/${{ needs.version.outputs.sha }}/install.ps1" | iex
+          $exe = Join-Path $env:LOCALAPPDATA "Programs\Marko\marko.exe"
+          if (-not (Test-Path $exe)) { throw "marko.exe is not at $exe" }
+          # A release marko.exe is a GUI program: wait for it and read its output from a file.
+          $p = Start-Process -FilePath $exe -ArgumentList "--list-scenes" -Wait -PassThru -NoNewWindow -RedirectStandardOutput scenes.txt
+          Get-Content scenes.txt
+          if ($p.ExitCode -ne 0) { throw "marko.exe exited with $($p.ExitCode)" }
+          if (-not ((Get-Content scenes.txt) -contains "folder")) { throw "marko.exe did not list its scenes" }
+      - name: Checksums match
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ needs.version.outputs.tag }}" --repo "$GITHUB_REPOSITORY" --pattern 'marko-*' --pattern SHA256SUMS
+          sha256sum -c SHA256SUMS
