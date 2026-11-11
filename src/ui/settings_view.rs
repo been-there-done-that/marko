@@ -355,7 +355,9 @@ fn general(s: &AppState, look: &'static Look) -> El {
                 switch("stats", "Show memory and CPU", s.stats_on, |s| s.stats_on = !s.stats_on, k), k, t),
         ]))
         .child(el().w_full().h(1.0).fill(t.line))
-        .child(row().w_full().justify_end().child(reset))
+        .child(row().w_full().center_y()
+            .child(text(crate::version::label()).key("settings-version").font(k.ty.small).color(t.fg3).grow(1.0))
+            .child(reset))
 }
 
 #[cfg(test)]

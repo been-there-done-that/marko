@@ -374,5 +374,15 @@ pub fn more_menu(s: &AppState, k: &Kit, trigger: El, layers: &mut Vec<El>) -> El
                 .disabled(!has_tab)
                 .on_select(close_tab),
         )
+        .separator()
+        .item(
+            MenuItem::new("About Marko")
+                .lead(lead("menu-about", None, t.fg2))
+                .on_select(|s: &mut AppState| {
+                    s.menu = None;
+                    let now = s.now;
+                    s.show_toast(crate::version::label(), now);
+                }),
+        )
         .build(k, layers)
 }

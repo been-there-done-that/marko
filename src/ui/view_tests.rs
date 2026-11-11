@@ -419,3 +419,15 @@ fn progress_hidden_for_short_doc() {
     assert!(rt.find("doc-progress").is_some(), "a document that scrolls shows its progress");
     assert!(rt.find("doc-progress-line").is_some());
 }
+
+#[test]
+fn about_marko_shows_the_version() {
+    let mut rt = runtime(AppState::new());
+    rt.state.menu = Some(MenuKind::More);
+    rt.invalidate();
+    press(&mut rt, "menu-about");
+    let toast = rt.state.toast.as_ref().map(|t| t.text.clone()).expect("About Marko shows a toast");
+    assert_eq!(toast, crate::version::label());
+    assert!(toast.starts_with(&format!("Marko {}", env!("CARGO_PKG_VERSION"))), "{toast}");
+    assert_eq!(rt.state.menu, None, "the menu closes");
+}

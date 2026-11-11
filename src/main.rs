@@ -26,6 +26,7 @@ mod tabs;
 mod theme;
 mod themes;
 mod ui;
+mod version;
 mod watch;
 mod worker;
 

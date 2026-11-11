@@ -24,6 +24,10 @@ const WRITE_QUIET: Duration = Duration::from_millis(250);
 /// The settings this window last wrote or took from the file. A change in state that differs
 /// from it is this window's own and gets written; a file that matches it is an echo.
 static SYNCED: Mutex<Option<Settings>> = Mutex::new(None);
+/// What this window's writer last put in the file. The watcher reads every write back; a file
+/// that matches it is this window's own echo, even when the window has moved on since (a slider
+/// still being dragged), and applying it would rewind the window to that older value.
+static WRITTEN: Mutex<Option<Settings>> = Mutex::new(None);
 /// Sends settings to the writer thread. Set once the window is ready; headless renders have none.
 static WRITES: OnceLock<Sender<Settings>> = OnceLock::new();
 
@@ -54,15 +58,32 @@ pub fn start_with(settings: &Settings) {
 /// Once per frame: queues this window's own settings changes for the writer. Never redraws.
 pub fn tick(s: &AppState, _tx: &mut Tx) {
     let Some(writes) = WRITES.get() else { return };
-    let mut last = synced();
-    if last.as_ref() != Some(&s.settings) {
-        *last = Some(s.settings.clone());
+    if remember_own(&s.settings) {
         let _ = writes.send(s.settings.clone());
     }
 }
 
-/// Applies settings another window wrote. An echo of this window's own write changes nothing.
+/// Records `settings` as this window's own latest. Returns true when they changed, so they need
+/// writing.
+pub fn remember_own(settings: &Settings) -> bool {
+    let mut last = synced();
+    if last.as_ref() == Some(settings) { return false; }
+    *last = Some(settings.clone());
+    true
+}
+
+/// Records what the writer is about to put in the file, before it does, so the watcher's read
+/// of it is known as this window's own.
+pub fn note_written(settings: &Settings) {
+    *WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(settings.clone());
+}
+
+/// Applies settings another window wrote. An echo of this window's own write changes nothing,
+/// even an older one.
 pub fn apply_external(s: &mut AppState, theirs: Settings) -> bool {
+    if WRITTEN.lock().unwrap_or_else(|e| e.into_inner()).as_ref() == Some(&theirs) {
+        return false;
+    }
     let mut last = synced();
     if last.as_ref() == Some(&theirs) || s.settings == theirs {
         *last = Some(theirs);
@@ -83,6 +104,7 @@ pub fn spawn(dir: PathBuf, handle: AppHandle<AppState>) {
             while let Ok(next) = rx.recv_timeout(WRITE_QUIET) {
                 latest = next;
             }
+            note_written(&latest);
             if let Err(e) = write(&write_dir, &latest) {
                 eprintln!("marko: couldn't save settings: {e}");
             }
