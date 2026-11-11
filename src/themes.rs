@@ -99,13 +99,20 @@ pub const ACCENTS: &[(&str, &str)] = &[
     ("Graphite", "#6B7280"),
 ];
 
-/// True when every colour in `def` parses as `#rrggbb`.
+/// True when `s` is `#rgb`, `#rrggbb` or `#rrggbbaa` in ASCII hex. Checked before
+/// `rune::color::hex`, which slices bytes and panics on a multi-byte character.
+pub fn valid_hex(s: &str) -> bool {
+    let Some(h) = s.strip_prefix('#') else { return false };
+    matches!(h.len(), 3 | 6 | 8) && h.is_ascii() && h.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// True when every colour in `def` is a valid `#rrggbb`-style value.
 pub fn valid(def: &ThemeDef) -> bool {
     let s = &def.syntax;
     [&def.bg, &def.fg, &def.fg2, &def.fg3, &def.accent, &def.bar, &def.side, &def.line, &def.line_strong, &def.code_bg, &def.code_line,
         &s.keyword, &s.string, &s.function, &s.number, &s.comment, &s.ty]
         .iter()
-        .all(|c| rune::color::hex(c).is_some())
+        .all(|c| valid_hex(c))
 }
 
 /// Reads every `*.json` theme in `dir`, sorted by name. A file that doesn't parse or has a bad

@@ -310,3 +310,33 @@ mod flow {
         assert!(rt.state.lightbox.is_none());
     }
 }
+
+#[test]
+fn svg_external_hrefs_are_refused() {
+    assert!(!svg_is_self_contained(br#"<svg xmlns="http://www.w3.org/2000/svg"><image href="/dev/zero"/></svg>"#));
+    assert!(!svg_is_self_contained(
+        br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="pic.png"/></svg>"#
+    ));
+    assert!(!svg_is_self_contained(
+        br#"<svg xmlns="http://www.w3.org/2000/svg"><filter><feImage href="/etc/passwd"/></filter></svg>"#
+    ));
+    assert!(!svg_is_self_contained(b"not xml at all"));
+}
+
+#[test]
+fn svg_data_hrefs_and_plain_shapes_are_allowed() {
+    assert!(svg_is_self_contained(
+        br#"<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AA=="/></svg>"#
+    ));
+    assert!(svg_is_self_contained(br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>"#));
+}
+
+#[test]
+fn gzip_is_bounded() {
+    use std::io::Write as _;
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(&vec![b'a'; 4096]).unwrap();
+    let gz = enc.finish().unwrap();
+    assert_eq!(bounded_gunzip(&gz, 8192).unwrap().len(), 4096);
+    assert!(bounded_gunzip(&gz, 1024).is_none(), "a cap smaller than the payload refuses it");
+}

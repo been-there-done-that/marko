@@ -2,6 +2,7 @@
 //! decoding off the UI thread, and a bounded cache of the decoded pictures.
 
 use std::collections::{HashMap, HashSet};
+use std::io::Read as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -287,9 +288,40 @@ fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::
     Some((img, bytes))
 }
 
+/// Largest an SVG may be after gzip decompression (32 MB), matching the rasteriser's own cap.
+const MAX_SVG_DECOMPRESSED: u64 = 32 * 1024 * 1024;
+
+/// Gunzips `bytes` but never produces more than `cap` bytes, so a small archive cannot expand
+/// into an unbounded allocation.
+fn bounded_gunzip(bytes: &[u8], cap: u64) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes).take(cap + 1).read_to_end(&mut out).ok()?;
+    (out.len() as u64 <= cap).then_some(out)
+}
+
+/// True when the drawing names no external file: `<image>` and `<feImage>` may only carry
+/// `data:` URIs. usvg's default resolver otherwise calls `std::fs::read` on whatever path an
+/// `href` names, so a malicious drawing could block on a FIFO or read `/dev/zero` until memory
+/// runs out. Anything that does not parse as XML is refused too.
+fn svg_is_self_contained(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else { return false };
+    let Ok(doc) = roxmltree::Document::parse(text) else { return false };
+    doc.descendants()
+        .filter(|n| matches!(n.tag_name().name(), "image" | "feImage"))
+        .all(|n| {
+            n.attributes()
+                .filter(|a| a.name() == "href")
+                .all(|a| a.value().trim_start().to_ascii_lowercase().starts_with("data:"))
+        })
+}
+
 /// Rasterises SVG (or gzipped SVG) bytes at the drawing's own size, no wider than the wide
 /// reading column.
 fn decode_svg(bytes: Vec<u8>) -> Option<(rune::Image, usize)> {
+    let bytes = if bytes.starts_with(&[0x1f, 0x8b]) { bounded_gunzip(&bytes, MAX_SVG_DECOMPRESSED)? } else { bytes };
+    if !svg_is_self_contained(&bytes) {
+        return None;
+    }
     let side = svg_size(&bytes).map_or(SVG_DEFAULT_PT, |(w, h)| w.max(h)).clamp(1.0, MAX_DECODE_WIDTH as f32);
     let img = catch_unwind(AssertUnwindSafe(|| shared_cache().svg(bytes, side, 1.0))).ok()?;
     let [w, h] = img.wait().ok()?;

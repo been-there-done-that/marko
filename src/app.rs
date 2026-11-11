@@ -239,6 +239,14 @@ impl AppState {
     /// Queues a write of tab `id`'s text to `path`. With `then_close`, the tab closes once the
     /// write lands. A tab that is not loaded has nothing to write.
     pub fn queue_save(&mut self, id: u64, path: PathBuf, then_close: bool) {
+        let now = self.now;
+        let lossy = self.tabs.iter().find(|t| t.id == id).is_some_and(|t| matches!(t.doc, DocState::Ready { lossy: true, .. }));
+        if lossy {
+            // Loading replaced unreadable bytes with U+FFFD. Writing that back would corrupt the
+            // file, so refuse and say why rather than lose the original silently.
+            self.show_toast("This file has characters that couldn't be read, so saving would damage it", now);
+            return;
+        }
         let Some(tab) = self.tabs.iter().find(|t| t.id == id) else { return };
         let text = match (&tab.edit, &tab.doc) {
             (Some(buf), _) => buf.text(),
@@ -260,6 +268,7 @@ impl AppState {
         self.close_after_save.retain(|&id| id != tab);
         let Some(t) = self.tabs.get_mut(tab) else { return };
         let name = file_name(&t.path);
+        let succeeded = result.is_ok();
         let toast = match result {
             Ok(()) => {
                 t.hash = Some(content_hash(&text));
@@ -275,7 +284,8 @@ impl AppState {
             Err(e) => format!("Couldn't save {name}: {e}"),
         };
         self.show_toast(toast, now);
-        if close && self.tabs.iter().any(|t| t.id == tab) {
+        // Only a successful write closes the tab: a failed save must keep the edits.
+        if close && succeeded && self.tabs.iter().any(|t| t.id == tab) {
             self.close_now(tab);
         }
         self.sync_find();
@@ -542,6 +552,12 @@ impl AppState {
     /// Reload from Disk both use it.
     pub fn requeue_active_load(&mut self) {
         let Some(tab) = self.tabs.active_mut() else { return };
+        if tab.edit.as_ref().is_some_and(EditBuffer::dirty) {
+            // Reloading would rebase the saved hash under the edits, so the next save would
+            // overwrite the file's new content without asking. Raise the conflict banner instead.
+            tab.conflict = true;
+            return;
+        }
         tab.doc = DocState::Loading;
         let job = Job::Load { tab: tab.id, path: tab.path.clone() };
         if !self.jobs.contains(&job) {
@@ -593,3 +609,7 @@ impl AppState {
     }
 }
 
+
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod tests;

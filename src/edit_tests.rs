@@ -64,3 +64,45 @@ fn typing_during_save_stays_dirty() {
     buf.mark_saved(&saved);
     assert!(buf.dirty());
 }
+
+#[cfg(unix)]
+#[test]
+fn save_atomic_preserves_mode() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("secret.md");
+    std::fs::write(&path, "old").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    save_atomic(&path, "new").unwrap();
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+}
+
+#[test]
+fn save_atomic_leaves_no_temp_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.md");
+    std::fs::write(&path, "old").unwrap();
+    save_atomic(&path, "new").unwrap();
+    let mut names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["a.md".to_string()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn save_atomic_does_not_follow_a_planted_tmp_symlink() {
+    use std::os::unix::fs::symlink;
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim.txt");
+    std::fs::write(&victim, "safe").unwrap();
+    symlink(&victim, dir.path().join("a.md.tmp")).unwrap();
+    let path = dir.path().join("a.md");
+    save_atomic(&path, "new").unwrap();
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "safe", "the planted symlink is not written through");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+}

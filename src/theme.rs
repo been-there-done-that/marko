@@ -121,7 +121,7 @@ pub fn look(settings: &Settings, user: &[ThemeDef], system_dark: bool) -> &'stat
         static CACHE: RefCell<HashMap<Key, &'static Look>> = RefCell::new(HashMap::new());
     }
     let def = resolve_theme(settings, user, system_dark);
-    let accent = settings.accent.clone().filter(|a| rune::color::hex(a).is_some());
+    let accent = settings.accent.clone().filter(|a| themes::valid_hex(a));
     let pct = (settings.panel_alpha().clamp(0.0, 1.0) * 20.0).round() as u8;
     let key: Key = (def, accent, pct);
     CACHE.with(|c| {

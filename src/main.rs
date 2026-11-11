@@ -18,6 +18,7 @@ mod net;
 mod open;
 mod paths;
 mod progress;
+mod recovery;
 mod session;
 mod settings;
 mod settings_sync;
@@ -309,6 +310,7 @@ fn main() {
     let app = rune::App::new(spec)
         .window_options(options)
         .on_window(|win| WINDOW.with(|w| *w.borrow_mut() = Some(win.clone())))
+        .on_close(recovery_on_close)
         .on_quit(save_on_quit)
         .titlebar(rune::Titlebar::new(theme::BAR_H));
     #[cfg(target_os = "macos")]
@@ -351,6 +353,12 @@ fn start(handle: AppHandle<AppState>) {
     });
     let saved = session::load(&prefs);
     let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
+    // Only the primary window restores recovery, so two windows don't reopen the same buffers.
+    let recovered = if primary.is_some() {
+        prefs.path().and_then(|p| p.parent()).map(recovery::read).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let (saves, queued) = mpsc::channel::<Session>();
     thread::Builder::new()
         .name("session-save".into())
@@ -367,6 +375,7 @@ fn start(handle: AppHandle<AppState>) {
         let now = s.now;
         session::restore(s, saved, now);
         s.open_paths(&cli, now);
+        recovery::restore(s, recovered);
     });
 }
 
@@ -428,18 +437,40 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
 /// UI thread and writes synchronously; the prefs file is replaced through a rename, so a save
 /// the saver thread makes at the same time can't leave it half-written.
 fn save_on_quit(s: &mut AppState, _: &mut Tx) {
+    if let Some(persist) = PERSIST.get() {
+        let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
+        if p.primary.is_some() {
+            let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
+            if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
+                p.frame = Some(frame);
+            }
+            let mut snapshot = session::capture(s);
+            snapshot.frame = p.frame;
+            session::save(&mut Prefs::open(APP_ID), &snapshot);
+        }
+    }
+    // After the session guard is released: recovery takes the same lock.
+    write_recovery(s);
+}
+
+/// Snapshots unsaved buffers as the window closes, so the next launch can restore them. Rune
+/// cannot cancel a close, so this is the only place the edits can be kept.
+fn recovery_on_close(s: &mut AppState, _: &mut Tx) {
+    write_recovery(s);
+}
+
+/// Writes the dirty buffers to the config folder, or clears the snapshot when there are none.
+/// Only the primary window writes, matching the session.
+fn write_recovery(s: &AppState) {
     let Some(persist) = PERSIST.get() else { return };
-    let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
-    if p.primary.is_none() {
+    let primary = persist.lock().unwrap_or_else(|e| e.into_inner()).primary.is_some();
+    if !primary {
         return;
     }
-    let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
-    if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
-        p.frame = Some(frame);
+    let Some(dir) = Prefs::open(APP_ID).path().and_then(|p| p.parent().map(|p| p.to_path_buf())) else { return };
+    if let Err(e) = recovery::write(&dir, &recovery::snapshot(s)) {
+        eprintln!("marko: couldn't write the recovery file: {e}");
     }
-    let mut snapshot = session::capture(s);
-    snapshot.frame = p.frame;
-    session::save(&mut Prefs::open(APP_ID), &snapshot);
 }
 
 #[cfg(test)]
