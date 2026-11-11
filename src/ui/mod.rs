@@ -30,6 +30,9 @@ pub fn view(s: &AppState, cx: &mut Cx<AppState>) -> El {
     let chrome = cx.chrome_insets();
     let k = &look.kit;
     let t = &look.tokens;
+    // The window buttons Rune draws on Windows and Linux follow Marko's theme, not the system's
+    // light or dark setting: a light theme on a dark desktop would get white buttons on a white bar.
+    cx.caption_color(t.fg);
     let mut layers = Vec::new();
     let show_side = s.sidebar.visible && (!s.tabs.is_empty() || !s.sidebar.roots.is_empty());
     let bar = titlebar::bar(s, k, look, chrome, show_side, &mut layers);

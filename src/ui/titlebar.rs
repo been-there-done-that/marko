@@ -63,7 +63,7 @@ fn readout(s: &AppState, k: &Kit, t: &Tokens) -> El {
 /// The sidebar toggle and the Open button (with its menu), shared by both layouts.
 fn side_controls(s: &AppState, k: &Kit, layers: &mut Vec<El>) -> (El, El) {
     let sidebar = ghost_button("Sidebar", format!("Toggle sidebar  {}", chord(false, "B")), &icons::PANEL_LEFT)
-        .on_press(|s: &mut AppState| s.sidebar.visible = !s.sidebar.visible)
+        .on_press_tx(|s: &mut AppState, tx: &mut rune::Tx| s.toggle_sidebar(tx))
         .build(k)
         .key("tb-sidebar");
     let open_btn = ghost_button("Open", format!("Open  {}", chord(false, "O")), &icons::FOLDER_OPEN)
@@ -73,18 +73,20 @@ fn side_controls(s: &AppState, k: &Kit, layers: &mut Vec<El>) -> (El, El) {
     (sidebar, menus::open_menu(s, k, open_btn, layers))
 }
 
-/// The header at the top of the full-height sidebar: the app's name at the left (clear of the
-/// macOS traffic lights, which sit at the window's top-left), Open and the sidebar toggle at the
+/// The header at the top of the full-height sidebar: the sidebar toggle and Open at the left,
+/// clear of the macOS traffic lights, in exactly the place the toolbar puts them when the sidebar
+/// is hidden (same inset, padding and gap), so toggling never moves them; the app's name at the
 /// right. It is a window drag region like the toolbar beside it.
 pub fn side_header(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, layers: &mut Vec<El>) -> El {
     let t = &look.tokens;
     let (sidebar, open) = side_controls(s, k, layers);
     let name = text("Marko").font(k.ty.small_medium).color(t.fg);
-    row().key("side-header").w_full().h(theme::BAR_H).pl(chrome.leading + 14.0).pr(8.0).gap(4.0).center_y()
+    // `WindowTitlebar`'s own leading padding and this bar's gap (see `bar`).
+    row().key("side-header").w_full().h(theme::BAR_H).pl(chrome.leading + 14.0).pr(14.0).gap(4.0).center_y()
         .window_drag()
-        .child(row().grow(1.0).min_w(0.0).center_y().child(name))
-        .child(open)
         .child(sidebar)
+        .child(open)
+        .child(row().grow(1.0).min_w(0.0).justify_end().center_y().child(name))
 }
 
 /// The toolbar band for this frame. Menus it opens are pushed into `layers`. With the sidebar

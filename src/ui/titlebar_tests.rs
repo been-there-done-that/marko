@@ -78,3 +78,16 @@ fn hidden_sidebar_gives_one_full_width_band() {
     assert!(bar[0] < 1.0 && bar[2] > 1000.0, "full width: {bar:?}");
     assert!(rect(&mut rt, "tb-sidebar").is_some() && rect(&mut rt, "tb-open").is_some());
 }
+
+#[test]
+fn sidebar_toggle_keeps_its_buttons_in_place() {
+    let mut rt = runtime(with_folder());
+    let shown: Vec<_> = ["tb-sidebar", "tb-open"].iter().map(|k| rect(&mut rt, k).expect("drawn with the sidebar")).collect();
+    rt.state.sidebar.visible = false;
+    rt.invalidate();
+    let hidden: Vec<_> = ["tb-sidebar", "tb-open"].iter().map(|k| rect(&mut rt, k).expect("drawn without the sidebar")).collect();
+    for (key, (a, b)) in ["tb-sidebar", "tb-open"].iter().zip(shown.iter().zip(&hidden)) {
+        assert!((a[0] - b[0]).abs() < 0.5 && (a[1] - b[1]).abs() < 0.5, "`{key}` moved when the sidebar hid: {a:?} -> {b:?}");
+    }
+    assert!(shown[0][0] < shown[1][0], "the sidebar toggle comes before Open");
+}

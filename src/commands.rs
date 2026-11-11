@@ -141,7 +141,7 @@ pub fn run(s: &mut AppState, id: &str, tx: &mut Tx) {
                 keys::save_tab(s, tx, tab, false, false);
             }
         }
-        "toggle-sidebar" => s.sidebar.visible = !s.sidebar.visible,
+        "toggle-sidebar" => s.toggle_sidebar(tx),
         "find" => {
             if !s.find.open {
                 toggle_find(s, tx);

@@ -256,6 +256,7 @@ static SCENES: &[Scene] = &[
     }),
     ("no-sidebar", |s: &mut AppState| { scene_folder(s); s.sidebar.visible = false; }),
     ("folder-dark", |s: &mut AppState| { scene_folder(s); s.settings.theme = "dark".into(); }),
+    ("folder-light", |s: &mut AppState| { scene_folder(s); s.settings.theme = "light".into(); }),
     ("background-folder-dark", |s: &mut AppState| { scene_background(s); s.settings.theme = "dark".into(); s.settings.background.blur = 0.0; }),
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];

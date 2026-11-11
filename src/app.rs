@@ -143,6 +143,14 @@ fn file_name(path: &Path) -> String {
 }
 
 impl AppState {
+    /// Shows or hides the sidebar in one frame. An animated commit would spring the whole
+    /// document column sideways while its text re-wraps, and fade the controls between the
+    /// sidebar's header and the toolbar.
+    pub fn toggle_sidebar(&mut self, tx: &mut Tx) {
+        self.sidebar.visible = !self.sidebar.visible;
+        tx.instant();
+    }
+
     pub fn new() -> Self {
         Self {
             tabs: TabSet::new(),

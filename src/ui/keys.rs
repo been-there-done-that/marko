@@ -182,7 +182,7 @@ fn dispatch(s: &mut AppState, ev: &KeyEvent, tx: &mut Tx) -> bool {
         return true;
     }
     if chord(ev, 'b', false) {
-        s.sidebar.visible = !s.sidebar.visible;
+        s.toggle_sidebar(tx);
         return true;
     }
     if chord(ev, 'e', false) {
