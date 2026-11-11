@@ -8,6 +8,12 @@
 Native, GPU-drawn, about 65 MB of memory, and nothing running while you read.</p>
 
 <p align="center">
+  <a href="https://github.com/been-there-done-that/marko/actions/workflows/ci.yml"><img src="https://github.com/been-there-done-that/marko/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/been-there-done-that/marko/releases/latest"><img src="https://img.shields.io/github/v/release/been-there-done-that/marko" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/been-there-done-that/marko" alt="MIT license"></a>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/background.png" width="820" alt="Marko with a background picture behind frosted panels">
 </p>
 
@@ -37,7 +43,7 @@ This installs to `%LOCALAPPDATA%\Programs\Marko`, adds a Start menu entry and pu
 | Build from source | `./install.sh --from-source` (needs Rust) | `cargo build --release` |
 | Uninstall | `sh -s -- --uninstall` | `.\install.ps1 -Uninstall` |
 
-Prebuilt downloads are on the [Releases](https://github.com/been-there-done-that/marko/releases) page. Until the first version is tagged there are none: clone the repo and run `./install.sh --from-source` (needs Rust).
+Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Releases](https://github.com/been-there-done-that/marko/releases) page.
 
 ## Use
 
@@ -139,12 +145,21 @@ rsvg-convert -w 1024 -h 1024 packaging/icons/marko.svg -o marko-master.png
 python3 packaging/icons/make-icons.py marko-master.png
 ```
 
-Releases are automatic. When CI passes on `main` and the `version` in `Cargo.toml` has no release yet, the release workflow builds Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows, tags the commit, publishes the archives the install scripts download, and then installs that release with the one-liners above on fresh machines to check it starts. To ship a new version, bump `version` in `Cargo.toml` and push.
+## Releases
+
+Releases are automatic. To ship a new version, bump `version` in `Cargo.toml` and push to `main`. When CI passes and that version has no release yet, the [release workflow](.github/workflows/release.yml):
+
+1. builds Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows;
+2. tags the commit `v<version>` and publishes the archives and `SHA256SUMS` as a GitHub release;
+3. installs that release on fresh Linux, macOS and Windows machines with the one-liners above, and checks that the installed `marko` starts and the downloads match their checksums.
+
+Pushes that keep the version don't build anything. Run the workflow by hand from the Actions tab to build every platform without publishing.
 
 ## Known limits
 
 - Text inside SVG images is not drawn yet (shapes are).
 - The font pickers list installed fonts on Linux; on macOS and Windows they offer the defaults for now.
+- On Linux the window has no system shadow or border: Marko draws its own title bar there, and the desktop adds neither.
 - macOS builds are signed ad hoc, not notarised. The install script clears the download quarantine for you; if you download the archive yourself, right-click Marko.app and choose Open the first time.
 
 ## Contributing

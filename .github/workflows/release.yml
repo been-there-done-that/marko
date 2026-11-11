@@ -33,7 +33,7 @@ jobs:
       build: ${{ steps.v.outputs.build }}
       publish: ${{ steps.v.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - id: v
@@ -64,12 +64,12 @@ jobs:
         include:
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, asset: marko-linux-x86_64.tar.gz }
           - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, asset: marko-linux-aarch64.tar.gz }
-          - { os: macos-14, target: aarch64-apple-darwin, asset: marko-macos-aarch64.tar.gz }
+          - { os: macos-15, target: aarch64-apple-darwin, asset: marko-macos-aarch64.tar.gz }
           - { os: macos-15-intel, target: x86_64-apple-darwin, asset: marko-macos-x86_64.tar.gz }
           - { os: windows-latest, target: x86_64-pc-windows-msvc, asset: marko-windows-x86_64.zip }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.version.outputs.sha }}
       - uses: dtolnay/rust-toolchain@stable
@@ -145,7 +145,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel, windows-latest]
+        os: [ubuntu-22.04, ubuntu-22.04-arm, macos-15, macos-15-intel, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install with the one-liner (Linux, macOS)
