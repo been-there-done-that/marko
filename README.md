@@ -50,7 +50,10 @@ Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Rel
 ```sh
 marko notes.md            # open a file
 marko README.md docs/     # files open as tabs, folders join the sidebar
+marko --wait notes.md     # stay attached to the terminal until the window closes
 ```
+
+From a terminal, `marko` opens its window and gives the prompt straight back, as `code .` does; the window carries on after you close the terminal.
 
 Or drop files and folders onto the window. Your tabs, folders, scroll positions and window size come back the next time you open it.
 

@@ -6,6 +6,7 @@
 mod app;
 mod background;
 mod commands;
+mod detach;
 mod edit;
 mod find;
 mod fonts;
@@ -263,6 +264,8 @@ static SCENES: &[Scene] = &[
 ];
 
 fn main() {
+    // From a terminal, give the terminal back: the window runs in a detached copy.
+    detach::maybe_detach();
     // SAFETY: single-threaded, before any thread starts, so nothing else reads or writes the environment.
     #[cfg(target_os = "linux")]
     unsafe {
@@ -359,7 +362,7 @@ fn start(handle: AppHandle<AppState>) {
         .expect("the OS refused to start the session saver thread");
     let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves }));
 
-    let cli: Vec<PathBuf> = rune::extra_args().iter().map(PathBuf::from).collect();
+    let cli: Vec<PathBuf> = rune::extra_args().iter().filter(|a| !detach::is_flag(a)).map(PathBuf::from).collect();
     handle.update(move |s, _| {
         let now = s.now;
         session::restore(s, saved, now);
