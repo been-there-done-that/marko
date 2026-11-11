@@ -37,7 +37,7 @@ This installs to `%LOCALAPPDATA%\Programs\Marko`, adds a Start menu entry and pu
 | Build from source | `./install.sh --from-source` (needs Rust) | `cargo build --release` |
 | Uninstall | `sh -s -- --uninstall` | `.\install.ps1 -Uninstall` |
 
-Prebuilt downloads are on the [Releases](https://github.com/been-there-done-that/marko/releases) page. Until the first version is tagged there are none, and the install script needs `--from-source`.
+Prebuilt downloads are on the [Releases](https://github.com/been-there-done-that/marko/releases) page. Until the first version is tagged there are none: clone the repo and run `./install.sh --from-source` (needs Rust).
 
 ## Use
 
