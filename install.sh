@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs Marko for the current user on Linux or macOS. No root needed.
 #
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/marko/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/been-there-done-that/marko/main/install.sh | sh
 #
 # Options (pass after `sh -s --` when piping):
 #   --version v0.2.0   install that release instead of the latest
@@ -12,7 +12,7 @@
 # macOS:  ~/Applications/Marko.app and ~/.local/bin/marko pointing into it.
 set -eu
 
-REPO="${MARKO_REPO:-OWNER/marko}"
+REPO="${MARKO_REPO:-been-there-done-that/marko}"
 VERSION="latest"
 MODE="download"
 BIN_DIR="${MARKO_BIN_DIR:-$HOME/.local/bin}"

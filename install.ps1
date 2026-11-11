@@ -1,6 +1,6 @@
 # Installs Marko for the current user on Windows. No administrator rights needed.
 #
-#   irm https://raw.githubusercontent.com/OWNER/marko/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/been-there-done-that/marko/main/install.ps1 | iex
 #
 # With options, download first:  & .\install.ps1 -Version v0.2.0 -Associate
 #   -Version v0.2.0   install that release instead of the latest
@@ -15,7 +15,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
-$Repo = if ($env:MARKO_REPO) { $env:MARKO_REPO } else { "OWNER/marko" }
+$Repo = if ($env:MARKO_REPO) { $env:MARKO_REPO } else { "been-there-done-that/marko" }
 $Dir = Join-Path $env:LOCALAPPDATA "Programs\Marko"
 $Shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Marko.lnk"
 $Exe = Join-Path $Dir "marko.exe"

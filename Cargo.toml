@@ -3,6 +3,9 @@ name = "marko"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
+description = "A fast, light Markdown viewer and editor"
+license = "MIT"
+repository = "https://github.com/been-there-done-that/marko"
 
 [dependencies]
 rune = { git = "https://github.com/been-there-done-that/rune", rev = "892236b7d4e1d75185f806f0d308cfae9249fb62", features = ["native-file-dialog"] }

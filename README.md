@@ -16,7 +16,7 @@ Native, GPU-drawn, about 65 MB of memory, and nothing running while you read.</p
 **Linux and macOS**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/OWNER/marko/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/been-there-done-that/marko/main/install.sh | sh
 ```
 
 This installs `marko` into `~/.local/bin`. On Linux it also adds a menu entry and icons; on macOS it installs `~/Applications/Marko.app`. No root needed.
@@ -24,7 +24,7 @@ This installs `marko` into `~/.local/bin`. On Linux it also adds a menu entry an
 **Windows** (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/OWNER/marko/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/been-there-done-that/marko/main/install.ps1 | iex
 ```
 
 This installs to `%LOCALAPPDATA%\Programs\Marko`, adds a Start menu entry and puts `marko` on your PATH. To also offer Marko in "Open with" for `.md` files, download `install.ps1` and run `.\install.ps1 -Associate`.
@@ -37,7 +37,7 @@ This installs to `%LOCALAPPDATA%\Programs\Marko`, adds a Start menu entry and pu
 | Build from source | `./install.sh --from-source` (needs Rust) | `cargo build --release` |
 | Uninstall | `sh -s -- --uninstall` | `.\install.ps1 -Uninstall` |
 
-Prebuilt downloads are on the [Releases](https://github.com/OWNER/marko/releases) page.
+Prebuilt downloads are on the [Releases](https://github.com/been-there-done-that/marko/releases) page. Until the first version is tagged there are none, and the install script needs `--from-source`.
 
 ## Use
 
@@ -47,6 +47,13 @@ marko README.md docs/     # files open as tabs, folders join the sidebar
 ```
 
 Or drop files and folders onto the window. Your tabs, folders, scroll positions and window size come back the next time you open it.
+
+The toolbar is the window's title bar. Drag it to move the window and double-click it to maximize or restore, as with any title bar. Minimize, maximize and close sit at its right end on Linux and Windows, and at the left on macOS as usual. On Linux the window edges resize it too.
+
+<p align="center">
+  <img src="docs/screenshots/folder-light.png" width="49%" alt="A folder open in the sidebar, Light theme">
+  <img src="docs/screenshots/folder-dark.png" width="49%" alt="The same folder in the Dark theme">
+</p>
 
 | Keys (Ctrl on Linux/Windows, ⌘ on macOS) | |
 |---|---|
@@ -116,7 +123,7 @@ Press **Edit** (or Ctrl E) for the source beside a live preview that scrolls wit
 
 ## Build
 
-Marko is written in Rust on the [Rune](https://github.com/anomalyco/rune) GPU UI framework.
+Marko is written in Rust on the [Rune](https://github.com/anomalyco/rune) GPU UI framework. For now it builds against [a fork](https://github.com/been-there-done-that/rune/tree/linux-csd-titlebar) that draws the window's title bar buttons and resize edges on Linux ([anomalyco/rune#591](https://github.com/anomalyco/rune/issues/591)); it moves back to upstream Rune once that lands.
 
 ```sh
 cargo run --release -- README.md
@@ -128,8 +135,8 @@ On Linux you need `pkg-config`, `libfontconfig1-dev`, `libxkbcommon-dev` and `li
 To rebuild the icons after editing `packaging/icons/marko.svg`:
 
 ```sh
-rsvg-convert -w 1024 -h 1024 packaging/icons/marko.svg -o /tmp/marko-master.png
-python3 packaging/icons/make-icons.py /tmp/marko-master.png
+rsvg-convert -w 1024 -h 1024 packaging/icons/marko.svg -o marko-master.png
+python3 packaging/icons/make-icons.py marko-master.png
 ```
 
 To publish a release, push a version tag (`git tag v0.1.0 && git push --tags`). The release workflow builds Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows, and attaches the archives the install scripts download.
@@ -139,3 +146,11 @@ To publish a release, push a version tag (`git tag v0.1.0 && git push --tags`). 
 - Text inside SVG images is not drawn yet (shapes are).
 - The font pickers list installed fonts on Linux; on macOS and Windows they offer the defaults for now.
 - macOS builds are signed ad hoc, not notarised. The install script clears the download quarantine for you; if you download the archive yourself, right-click Marko.app and choose Open the first time.
+
+## Contributing
+
+Pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing, headless screenshots and how commits are written. Bugs and ideas go in [Issues](https://github.com/been-there-done-that/marko/issues).
+
+## License
+
+[MIT](LICENSE)
