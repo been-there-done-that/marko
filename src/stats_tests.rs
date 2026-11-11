@@ -31,29 +31,36 @@ fn stats_text_formats() {
 }
 
 #[test]
+fn memory_counts_decimal_megabytes_as_the_system_monitor_does() {
+    // 84 MiB is 88.08 MB: the figure GNOME's monitors show for the same process.
+    let (stats, _) = compute(None, 0.0, 84 << 20, 0.0);
+    assert_eq!(stats.rss_mb, 88);
+}
+
+#[test]
 fn cpu_is_taken_over_wall_time_since_the_last_sample() {
-    let (first, sample) = compute(None, 0.0, 112 << 20, 2.0);
+    let (first, sample) = compute(None, 0.0, 112_000_000, 2.0);
     assert_eq!(first, Stats { rss_mb: 112, cpu_pct: 0 });
     // A quarter of a core over two seconds: 0.5 s of CPU out of 2 s of wall time.
-    let (next, _) = compute(Some(sample), 2.0, 112 << 20, 2.5);
+    let (next, _) = compute(Some(sample), 2.0, 112_000_000, 2.5);
     assert_eq!(next.cpu_pct, 25);
 }
 
 #[test]
 fn apply_samples_once_per_second_and_reports_only_changes() {
     let mut s = AppState::new();
-    assert!(apply(&mut s, 0.0, usage(112 << 20, 1.0)), "the first reading shows");
-    assert!(!apply(&mut s, 0.5, usage(112 << 20, 1.1)), "not due yet");
+    assert!(apply(&mut s, 0.0, usage(112_000_000, 1.0)), "the first reading shows");
+    assert!(!apply(&mut s, 0.5, usage(112_000_000, 1.1)), "not due yet");
     assert_eq!(s.stats.cpu_pct, 0);
-    assert!(!apply(&mut s, 1.0, usage(112 << 20, 1.0)), "same text, no redraw");
-    assert!(apply(&mut s, 2.0, usage(120 << 20, 1.5)), "memory moved");
+    assert!(!apply(&mut s, 1.0, usage(112_000_000, 1.0)), "same text, no redraw");
+    assert!(apply(&mut s, 2.0, usage(120_000_000, 1.5)), "memory moved");
     assert_eq!(s.stats, Stats { rss_mb: 120, cpu_pct: 50 });
 }
 
 #[test]
 fn stats_hidden_when_toggled_off() {
     let mut s = AppState::new();
-    apply(&mut s, 0.0, usage(112 << 20, 1.0));
+    apply(&mut s, 0.0, usage(112_000_000, 1.0));
     let mut rt = runtime(s);
     rt.frame(1.0 / 60.0);
     assert!(rt.find("stats").is_some(), "the readout shows by default");

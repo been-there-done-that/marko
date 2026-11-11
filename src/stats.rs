@@ -10,8 +10,8 @@ use crate::app::AppState;
 /// How often the readout samples, in seconds.
 pub const EVERY: f64 = 1.0;
 
-/// What the readout shows: resident memory in whole MB, and CPU use since the last sample in
-/// whole percent of one core.
+/// What the readout shows: resident memory in whole MB (1 MB = 1,000,000 bytes, as GNOME's and
+/// macOS's monitors count), and CPU use since the last sample in whole percent of one core.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
     pub rss_mb: u32,
@@ -33,7 +33,7 @@ pub fn text(stats: Stats) -> String {
 /// The numbers for a reading at `now` against the previous sample, and the sample to diff the
 /// next one against. CPU is over the wall time since `prev`; with no `prev` it is 0.
 pub fn compute(prev: Option<Sample>, now: f64, rss_bytes: u64, cpu_s: f64) -> (Stats, Sample) {
-    let rss_mb = (rss_bytes as f64 / (1u64 << 20) as f64).round() as u32;
+    let rss_mb = (rss_bytes as f64 / 1e6).round() as u32;
     let cpu_pct = match prev {
         Some(p) if now > p.at => ((cpu_s - p.cpu_s).max(0.0) / (now - p.at) * 100.0).round() as u32,
         _ => 0,

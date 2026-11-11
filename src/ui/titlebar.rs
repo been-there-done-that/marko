@@ -113,7 +113,7 @@ pub fn bar(s: &AppState, k: &Kit, look: &'static Look, chrome: ChromeInsets, sid
     if side {
         insets.leading = 0.0;
     }
-    let mut bar = WindowTitlebar::from_insets(insets, 1.0).height(theme::BAR_H).gap(4.0);
+    let mut bar = WindowTitlebar::from_insets(insets).height(theme::BAR_H).gap(4.0);
     if !side {
         let (sidebar, open) = side_controls(s, k, layers);
         bar = bar.leading(sidebar).leading(open).leading(divider(t));
