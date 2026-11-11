@@ -317,7 +317,7 @@ fn guard_save_writes_then_closes() {
     rt.state.jobs.clear();
     press(&mut rt, "guard-save");
     assert_eq!(rt.state.tabs.iter().count(), 1, "the tab waits for its write");
-    let jobs: Vec<crate::app::Job> = rt.state.jobs.drain(..).collect();
+    let jobs: Vec<crate::app::Job> = std::mem::take(&mut rt.state.jobs);
     for job in jobs {
         crate::worker::run_job(job).apply(&mut rt.state);
     }

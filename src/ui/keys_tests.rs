@@ -240,7 +240,7 @@ fn cmd_s_saves_and_clears_dirty() {
 
     rt.state.jobs.clear();
     send(&mut rt, cmd('s'));
-    let jobs: Vec<Job> = rt.state.jobs.drain(..).collect();
+    let jobs: Vec<Job> = std::mem::take(&mut rt.state.jobs);
     assert!(matches!(jobs.as_slice(), [Job::Save { .. }]));
     for job in jobs {
         crate::worker::run_job(job).apply(&mut rt.state);

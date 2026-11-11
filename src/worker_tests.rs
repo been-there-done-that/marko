@@ -11,7 +11,7 @@ fn fixture(name: &str) -> PathBuf {
 fn worker_runs_load_and_posts_result() {
     let mut s = AppState::new();
     s.open_paths(&[fixture("hello.md")], 0.0);
-    let jobs: Vec<Job> = s.jobs.drain(..).collect();
+    let jobs: Vec<Job> = std::mem::take(&mut s.jobs);
     assert_eq!(jobs.len(), 1);
     let tab = match &jobs[0] {
         Job::Load { tab, .. } => *tab,

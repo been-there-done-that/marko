@@ -76,7 +76,7 @@ fn code_block_has_copy_button() {
     std::fs::write(&doc, "# Code\n\n```rust\nfn main() {}\n```\n").unwrap();
     let mut s = AppState::new();
     s.open_paths(std::slice::from_ref(&doc), 0.0);
-    for job in s.jobs.drain(..).collect::<Vec<_>>() {
+    for job in std::mem::take(&mut s.jobs) {
         run_job(job).apply(&mut s);
     }
     let mut rt = rune::Runtime::new(s, view, (1100.0, 760.0), rune::Env { system_dark: false, scale: 2.0 });
