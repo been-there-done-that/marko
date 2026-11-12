@@ -4,7 +4,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -182,6 +182,14 @@ fn run(raw: Receiver<Event>, interest: Arc<Mutex<Interest>>, on_event: impl Fn(F
     }
 }
 
+/// True for the hidden temp file an atomic save creates beside its target.
+fn is_atomic_temp(path: &Path) -> bool {
+    path.file_name().is_some_and(|n| {
+        let n = n.to_string_lossy();
+        n.starts_with('.') && n.ends_with(".tmp")
+    })
+}
+
 /// The paths a raw event means to the app: an open file it touches, and the root it falls under
 /// when the event creates, removes or renames something there. Reads and attribute-only changes
 /// are ignored, so a reload that reads a file cannot trigger another reload.
@@ -196,7 +204,14 @@ fn keys_for(ev: &Event, interest: &Interest) -> Vec<PathBuf> {
         if interest.files.contains(path) {
             keys.push(path.clone());
         }
-        if tree && let Some(root) = interest.roots.iter().find(|r| path.starts_with(r)) && !keys.contains(root) {
+        // A save of an open file writes a hidden temp and renames it over the file. Neither is a
+        // folder change, so it must not queue a rescan of the whole root.
+        if tree
+            && !interest.files.contains(path)
+            && !is_atomic_temp(path)
+            && let Some(root) = interest.roots.iter().find(|r| path.starts_with(r))
+            && !keys.contains(root)
+        {
             keys.push(root.clone());
         }
     }

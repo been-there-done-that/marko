@@ -45,7 +45,18 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
             if blocked > 0 {
                 c = c.child(web_banner(tab.id, blocked, k, t));
             }
-            let md = markdown(s, k, look, src, &tab.path, find_highlights(s, tab.id));
+            let md = markdown(
+                s,
+                k,
+                look,
+                MarkdownDoc {
+                    key: &format!("doc-{}", tab.id),
+                    rev: tab.rev,
+                    src,
+                    path: &tab.path,
+                    highlights: find_highlights(s, tab.id),
+                },
+            );
             // A deleted file keeps its last text, dimmed to 60%.
             c.child(if tab.deleted { md.layer_opacity(0.6) } else { md })
         }
@@ -70,12 +81,69 @@ fn with_progress(scroll: El, s: &AppState, k: &Kit, t: &Tokens) -> El {
     area.child(line).child(pill)
 }
 
+/// The inputs to one rendered Markdown tree.
+pub struct MarkdownDoc<'a> {
+    /// Stable per-view key, unique across the tabs.
+    pub key: &'a str,
+    /// Bumped whenever the shown text changes.
+    pub rev: u64,
+    pub src: &'a str,
+    pub path: &'a Path,
+    pub highlights: Vec<(Vec<Range<usize>>, Highlight)>,
+}
+
 /// The rendered Markdown for `src`, with its frontmatter hidden. Links and images resolve against
 /// the folder of `path`. Images are read from the app's cache; one not decoded yet (or that
 /// failed) shows the broken-image glyph and its alt text. The Edit view's preview renders its
 /// buffer's text through this too, with no find highlights, since the matches were found in the
 /// saved source.
-pub fn markdown(s: &AppState, k: &Kit, look: &'static Look, src: &str, path: &Path, highlights: Vec<(Vec<Range<usize>>, Highlight)>) -> El {
+///
+/// The tree is memoised by `key` and `rev`: Rune rebuilds it only when the revision, the style,
+/// the image cache or the highlights change, not on every frame. Rune's own cache cannot help
+/// because the image and code callbacks disable it.
+pub fn markdown(s: &AppState, k: &Kit, look: &'static Look, doc: MarkdownDoc<'_>) -> El {
+    let version = markdown_version(s, look, doc.key, doc.rev, doc.path, &doc.highlights);
+    rune::memo::memo_with_hash(format!("md-{}", doc.key), version, move || build_markdown(s, k, look, doc))
+}
+
+/// Everything the rendered Markdown depends on, cheaply hashed: the look's identity, the text
+/// settings, the tab's revision, the image cache and the find highlights.
+fn markdown_version(
+    s: &AppState,
+    look: &'static Look,
+    key: &str,
+    rev: u64,
+    path: &Path,
+    highlights: &[(Vec<Range<usize>>, Highlight)],
+) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut h = DefaultHasher::new();
+    (look as *const Look as usize).hash(&mut h);
+    s.settings.text_size.to_bits().hash(&mut h);
+    s.settings.line_spacing.to_bits().hash(&mut h);
+    s.settings.ligatures.hash(&mut h);
+    s.settings.body_font.hash(&mut h);
+    s.settings.code_font.hash(&mut h);
+    s.zoom.to_bits().hash(&mut h);
+    key.hash(&mut h);
+    rev.hash(&mut h);
+    path.hash(&mut h);
+    s.images.version().hash(&mut h);
+    s.find.open.hash(&mut h);
+    s.find.current.hash(&mut h);
+    for (ranges, _) in highlights {
+        for r in ranges {
+            r.start.hash(&mut h);
+            r.end.hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
+fn build_markdown(s: &AppState, k: &Kit, look: &'static Look, doc: MarkdownDoc<'_>) -> El {
+    let MarkdownDoc { src, path, highlights, .. } = doc;
     let doc = path.to_path_buf();
     let link_doc = doc.clone();
     let hits = s.images.hits();
@@ -217,4 +285,21 @@ fn retry_button(k: &Kit) -> El {
         .on_press(|s: &mut AppState| s.requeue_active_load())
         .build(k)
         .key("doc-retry")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Settings;
+
+    #[test]
+    fn markdown_version_changes_with_revision_and_key() {
+        let s = AppState::new();
+        let look = theme::look(&Settings::default(), &[], false);
+        let path = Path::new("/d/a.md");
+        let a = markdown_version(&s, look, "doc-1", 1, path, &[]);
+        assert_eq!(a, markdown_version(&s, look, "doc-1", 1, path, &[]), "stable for the same inputs");
+        assert_ne!(a, markdown_version(&s, look, "doc-1", 2, path, &[]), "a new revision rebuilds");
+        assert_ne!(a, markdown_version(&s, look, "doc-2", 1, path, &[]), "a different tab rebuilds");
+    }
 }

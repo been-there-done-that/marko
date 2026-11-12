@@ -18,6 +18,9 @@ use crate::watch::{content_hash, FileEvent};
 
 /// Most recently opened files kept for the Open menu.
 const RECENT_CAP: usize = 16;
+/// Most pictures queued or failed at once, so a document naming thousands of images cannot
+/// fill the job queue.
+const MAX_PENDING_IMAGES: usize = 256;
 /// How long a toast stays on screen, in seconds.
 const TOAST_SECS: f64 = 2.4;
 /// Zoom step and limits. Zoom multiplies the reading sizes (§4.7).
@@ -279,6 +282,7 @@ impl AppState {
                 }
                 let large = text.len() as u64 > LARGE_BYTES;
                 t.doc = DocState::Ready { src: Arc::from(text.as_str()), large, lossy: false };
+                t.rev = t.rev.wrapping_add(1);
                 format!("Saved {name}")
             }
             Err(e) => format!("Couldn't save {name}: {e}"),
@@ -317,6 +321,7 @@ impl AppState {
             t.doc = doc;
             t.hash = None;
             t.deleted = false;
+            t.rev = t.rev.wrapping_add(1);
             return;
         };
         let same = was_ready && t.hash == Some(hash);
@@ -337,6 +342,7 @@ impl AppState {
         t.doc = doc;
         t.hash = Some(hash);
         t.deleted = false;
+        t.rev = t.rev.wrapping_add(1);
         if was_ready && !same {
             let name = file_name(&t.path);
             if active {
@@ -353,7 +359,7 @@ impl AppState {
         match ev {
             FileEvent::Changed(path) => {
                 if self.is_root(&path) {
-                    self.jobs.push(Job::Scan { root: path });
+                    self.queue_scan(path);
                     return;
                 }
                 self.refresh_image(&path);
@@ -363,7 +369,7 @@ impl AppState {
             }
             FileEvent::Removed(path) => {
                 if self.is_root(&path) {
-                    self.jobs.push(Job::Scan { root: path });
+                    self.queue_scan(path);
                     return;
                 }
                 for id in self.tab_ids_for(&path) {
@@ -373,10 +379,21 @@ impl AppState {
         }
     }
 
+    /// Queues a root scan unless one is already waiting.
+    fn queue_scan(&mut self, root: PathBuf) {
+        let job = Job::Scan { root };
+        if !self.jobs.contains(&job) {
+            self.jobs.push(job);
+        }
+    }
+
     /// Queues a decode for each local image not yet cached or pending. Paths are already resolved
     /// on the worker.
     pub fn want_images(&mut self, paths: Vec<PathBuf>) {
         for p in paths {
+            if self.images.pending_len() >= MAX_PENDING_IMAGES {
+                break;
+            }
             if !self.images.has(&p) && !self.images.pending(&p) {
                 self.images.mark_pending(p.clone());
                 self.jobs.push(Job::Image { key: p });
@@ -410,6 +427,9 @@ impl AppState {
             return;
         }
         for url in urls {
+            if self.images.pending_len() >= MAX_PENDING_IMAGES {
+                break;
+            }
             let key = crate::images::web_key(url);
             if !self.images.has(&key) && !self.images.pending(&key) {
                 self.images.mark_pending(key);
@@ -448,7 +468,7 @@ impl AppState {
         }
         let Some(tab) = self.tabs.active() else { return };
         let Some(buf) = tab.edit.as_ref() else { return };
-        let seen = (tab.id, content_hash(&buf.text.text));
+        let seen = (tab.id, tab.rev);
         if self.edit_images_seen == Some(seen) {
             return;
         }

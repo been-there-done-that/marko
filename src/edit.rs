@@ -10,17 +10,29 @@ use crate::watch::content_hash;
 pub struct EditBuffer {
     pub text: TextEdit,
     pub saved_hash: u64,
+    /// Cheap O(1) hint for the tab strip. `dirty` (which hashes) stays authoritative for saves.
+    edited: bool,
 }
 
 impl EditBuffer {
     pub fn from_src(src: &str) -> Self {
-        Self { text: TextEdit::new(src), saved_hash: content_hash(src) }
+        Self { text: TextEdit::new(src), saved_hash: content_hash(src), edited: false }
     }
 
     /// A buffer restored from a recovery snapshot: `text` is what was being edited and `saved`
     /// is what is on disk now, so the buffer is dirty exactly when the two differ.
     pub fn recovered(text: &str, saved: &str) -> Self {
-        Self { text: TextEdit::new(text), saved_hash: content_hash(saved) }
+        Self { text: TextEdit::new(text), saved_hash: content_hash(saved), edited: text != saved }
+    }
+
+    /// Records that the text was edited through the input. The hash check stays in `dirty`.
+    pub fn mark_edited(&mut self) {
+        self.edited = true;
+    }
+
+    /// The O(1) dirty hint, for the tab strip's per-frame dot.
+    pub fn dirty_hint(&self) -> bool {
+        self.edited
     }
 
     pub fn text(&self) -> String {
@@ -34,6 +46,7 @@ impl EditBuffer {
     /// Marks `saved` as what is on disk now. Text typed after the save began stays dirty.
     pub fn mark_saved(&mut self, saved: &str) {
         self.saved_hash = content_hash(saved);
+        self.edited = self.text.text != saved;
     }
 }
 

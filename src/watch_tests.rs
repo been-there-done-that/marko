@@ -178,3 +178,10 @@ fn clean_buffer_follows_reload() {
     let buf = s.tabs.get_mut(id).unwrap().edit.as_ref().unwrap().text();
     assert_eq!(buf, "# outside", "a clean buffer shows the reloaded text");
 }
+
+#[test]
+fn atomic_save_temps_are_recognised() {
+    assert!(is_atomic_temp(Path::new("/root/.a.md.123.0.tmp")));
+    assert!(!is_atomic_temp(Path::new("/root/a.md")));
+    assert!(!is_atomic_temp(Path::new("/root/.hidden.md")));
+}

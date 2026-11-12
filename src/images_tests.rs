@@ -27,13 +27,13 @@ fn image_srcs_skips_code_blocks() {
 #[test]
 fn cache_evicts_by_bytes() {
     let mut c = ImageCache::new();
-    let mb50 = 50 * 1024 * 1024;
-    c.insert(PathBuf::from("/a.png"), tiny(), mb50);
-    c.insert(PathBuf::from("/b.png"), tiny(), mb50);
-    c.insert(PathBuf::from("/c.png"), tiny(), mb50);
+    let part = CACHE_BYTES / 3;
+    for name in ["/a.png", "/b.png", "/c.png", "/d.png"] {
+        c.insert(PathBuf::from(name), tiny(), part);
+    }
     assert!(c.bytes() <= CACHE_BYTES);
     assert!(!c.has(Path::new("/a.png")), "the least recently used goes first");
-    assert!(c.has(Path::new("/c.png")));
+    assert!(c.has(Path::new("/d.png")));
 }
 
 #[test]
@@ -44,7 +44,8 @@ fn cache_evicts_by_count() {
     }
     assert_eq!(c.len(), CACHE_ENTRIES);
     assert!(!c.has(Path::new("/0.png")));
-    assert!(c.get(Path::new("/64.png")).is_some());
+    let last = PathBuf::from(format!("/{CACHE_ENTRIES}.png"));
+    assert!(c.get(&last).is_some());
 }
 
 #[test]
@@ -263,6 +264,8 @@ mod flow {
         let end = buf.text.text.len();
         buf.text.set_caret(end);
         buf.text.insert("\n![n](new.png)\n![w](https://h.example/w.png)\n");
+        // The input callback bumps the revision on every edit; do the same here.
+        s.tabs.active_mut().unwrap().rev += 1;
         s.sync_edit_images();
         assert!(s.jobs.contains(&Job::Image { key: pic.clone() }));
         assert_eq!(web_jobs(&s), 0, "Ask still holds in the editor");

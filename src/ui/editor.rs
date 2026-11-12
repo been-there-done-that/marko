@@ -33,12 +33,22 @@ fn buffer(tab: &mut Tab) -> &mut EditBuffer {
 /// tree while the active tab is Ready, so there is always a tab to write to.
 fn edit_text(s: &mut AppState) -> &mut TextEdit {
     let tab = s.tabs.active_mut().expect("the editor is only shown for an active tab");
-    &mut buffer(tab).text
+    tab.rev = tab.rev.wrapping_add(1);
+    let buf = buffer(tab);
+    buf.mark_edited();
+    &mut buf.text
 }
 
-/// True when the active tab's buffer differs from what was last saved or opened.
+/// True when the active tab's buffer differs from what was last saved or opened. Hashes the
+/// buffer, so per-frame code should use `dirty_hint` instead.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn dirty(tab: &Tab) -> bool {
     tab.edit.as_ref().is_some_and(EditBuffer::dirty)
+}
+
+/// The O(1) dirty hint for the tab strip, which asks about every tab every frame.
+pub fn dirty_hint(tab: &Tab) -> bool {
+    tab.edit.as_ref().is_some_and(EditBuffer::dirty_hint)
 }
 
 /// Whether the Edit view is shown this frame: Edit mode, with a Ready tab active.
@@ -135,7 +145,13 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
             at.set([p.offset[1], p.max[1]]);
         })
         .child(source_area);
-    let md = document::markdown(s, k, look, &edit.text, &tab.path, Vec::new());
+    let key = format!("edit-{}", tab.id);
+    let md = document::markdown(
+        s,
+        k,
+        look,
+        document::MarkdownDoc { key: &key, rev: tab.rev, src: &edit.text, path: &tab.path, highlights: Vec::new() },
+    );
     let preview_at = s.preview_at.clone();
     let preview = document::reading("preview", s, md).on_scroll_offset(move |p: ScrollPos| {
         preview_at.set([p.offset[1], p.max[1]]);

@@ -116,6 +116,7 @@ pub fn restore(s: &mut AppState, items: Vec<Recovered>) {
         tab.deleted = item.path.as_ref().is_some_and(|p| !p.is_file());
         tab.conflict = false;
         tab.changed = false;
+        tab.rev = tab.rev.wrapping_add(1);
     }
 }
 

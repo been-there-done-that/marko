@@ -99,10 +99,28 @@ fn doc_images(path: &Path, doc: &DocState) -> DocImages {
 /// to the UI thread with `AppHandle::update`.
 pub fn spawn_worker(handle: AppHandle<AppState>) -> Sender<Job> {
     let (tx, rx) = mpsc::channel::<Job>();
+    // Network fetches run on their own thread so a slow server cannot hold up a save or a load.
+    let (web_tx, web_rx) = mpsc::channel::<Job>();
+    let web_handle = handle.clone();
+    std::thread::Builder::new()
+        .name("web-worker".into())
+        .spawn(move || {
+            for job in web_rx {
+                let r = run_job(job);
+                web_handle.update(move |s, _| r.apply(s));
+            }
+        })
+        .expect("the OS refused to start the web worker thread");
     std::thread::Builder::new()
         .name("worker".into())
         .spawn(move || {
             for job in rx {
+                if matches!(job, Job::WebImage { .. }) {
+                    if web_tx.send(job).is_err() {
+                        break;
+                    }
+                    continue;
+                }
                 let r = run_job(job);
                 handle.update(move |s, _| r.apply(s));
             }

@@ -14,9 +14,10 @@ use pulldown_cmark::{Event, Parser, Tag};
 use crate::theme::READ_W_WIDE;
 
 /// Most decoded pictures kept at once.
-pub const CACHE_ENTRIES: usize = 64;
-/// Most decoded RGBA bytes kept at once (128 MB).
-pub const CACHE_BYTES: usize = 128 * 1024 * 1024;
+pub const CACHE_ENTRIES: usize = 32;
+/// Most decoded RGBA bytes kept at once (48 MB). This is part of the 90 MB process budget, so it
+/// stays well below it; the baseline with one README is about 63 MB.
+pub const CACHE_BYTES: usize = 48 * 1024 * 1024;
 /// Wider pictures are scaled down on decode, to twice the reading column (1920 px).
 pub const MAX_DECODE_WIDTH: u32 = 2 * READ_W_WIDE as u32;
 /// Largest allocation the decoder may make for one picture.
@@ -125,6 +126,8 @@ pub struct ImageCache {
     pending: HashSet<PathBuf>,
     bytes: usize,
     tick: Cell<u64>,
+    /// Bumped whenever the decoded set changes, so a memoised view knows to rebuild.
+    version: u64,
 }
 
 struct Entry {
@@ -141,7 +144,7 @@ impl Default for ImageCache {
 
 impl ImageCache {
     pub fn new() -> Self {
-        Self { entries: HashMap::new(), pending: HashSet::new(), bytes: 0, tick: Cell::new(0) }
+        Self { entries: HashMap::new(), pending: HashSet::new(), bytes: 0, tick: Cell::new(0), version: 0 }
     }
 
     fn next_tick(&self) -> u64 {
@@ -184,6 +187,17 @@ impl ImageCache {
                 self.bytes -= e.bytes;
             }
         }
+        self.version = self.version.wrapping_add(1);
+    }
+
+    /// Bumped whenever a picture is added or evicted.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// How many pictures are queued or failed, for the fetch cap.
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
     }
 
     /// The local files whose pictures are cached, for the watcher to follow.
