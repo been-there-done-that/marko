@@ -82,7 +82,7 @@ pub fn save_tab(s: &mut AppState, tx: &mut Tx, id: u64, save_as: bool, then_clos
     }
     if !save_as && !tab.untitled {
         let path = tab.path.clone();
-        s.queue_save(id, path, then_close);
+        s.queue_save(id, path, then_close, false);
         return true;
     }
     let file_name = tab.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -99,7 +99,7 @@ pub fn save_tab(s: &mut AppState, tx: &mut Tx, id: u64, save_as: bool, then_clos
                 t.path = path.clone();
                 t.untitled = false;
             }
-            s.queue_save(id, path, then_close);
+            s.queue_save(id, path, then_close, true);
         }
         Ok(None) => {}
         Err(_) => {

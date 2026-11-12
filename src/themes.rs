@@ -99,6 +99,9 @@ pub const ACCENTS: &[(&str, &str)] = &[
     ("Graphite", "#6B7280"),
 ];
 
+/// Largest theme file read (1 MB); a real theme is a few hundred bytes.
+const MAX_THEME_BYTES: u64 = 1024 * 1024;
+
 /// True when `s` is `#rgb`, `#rrggbb` or `#rrggbbaa` in ASCII hex. Checked before
 /// `rune::color::hex`, which slices bytes and panics on a multi-byte character.
 pub fn valid_hex(s: &str) -> bool {
@@ -128,7 +131,12 @@ pub fn load_dir(dir: &Path) -> (Vec<ThemeDef>, Vec<String>) {
             continue;
         }
         let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let parsed = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<ThemeDef>(&t).ok());
+        let too_big = std::fs::metadata(&path).map(|m| m.len() > MAX_THEME_BYTES).unwrap_or(true);
+        let parsed = if too_big {
+            None
+        } else {
+            std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str::<ThemeDef>(&t).ok())
+        };
         match parsed {
             Some(mut def) if valid(&def) => {
                 def.id = format!("user:{stem}");

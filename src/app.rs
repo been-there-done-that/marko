@@ -22,8 +22,8 @@ const RECENT_CAP: usize = 16;
 const TOAST_SECS: f64 = 2.4;
 /// Zoom step and limits. Zoom multiplies the reading sizes (§4.7).
 const ZOOM_STEP: f32 = 0.1;
-const ZOOM_MIN: f32 = 0.6;
-const ZOOM_MAX: f32 = 2.0;
+pub(crate) const ZOOM_MIN: f32 = 0.6;
+pub(crate) const ZOOM_MAX: f32 = 2.0;
 
 /// How a document is shown: the rendered preview, or the editor beside a live preview.
 pub enum Mode {
@@ -237,14 +237,14 @@ impl AppState {
     }
 
     /// Queues a write of tab `id`'s text to `path`. With `then_close`, the tab closes once the
-    /// write lands. A tab that is not loaded has nothing to write.
-    pub fn queue_save(&mut self, id: u64, path: PathBuf, then_close: bool) {
+    /// write lands. `save_as` allows a lossily-loaded document to be written to a new path.
+    pub fn queue_save(&mut self, id: u64, path: PathBuf, then_close: bool, save_as: bool) {
         let now = self.now;
         let lossy = self.tabs.iter().find(|t| t.id == id).is_some_and(|t| matches!(t.doc, DocState::Ready { lossy: true, .. }));
-        if lossy {
-            // Loading replaced unreadable bytes with U+FFFD. Writing that back would corrupt the
-            // file, so refuse and say why rather than lose the original silently.
-            self.show_toast("This file has characters that couldn't be read, so saving would damage it", now);
+        if lossy && !save_as {
+            // Loading replaced unreadable bytes with U+FFFD. Writing that back over the same file
+            // would corrupt it, so refuse; Save As writes the readable text elsewhere.
+            self.show_toast("This file has characters that couldn't be read. Use Save As to keep the original", now);
             return;
         }
         let Some(tab) = self.tabs.iter().find(|t| t.id == id) else { return };
@@ -387,7 +387,12 @@ impl AppState {
     /// A cached local image changed on disk: decodes the file again. The old picture stays on
     /// screen until the new one lands, and stays if the new one fails to decode.
     fn refresh_image(&mut self, path: &Path) {
-        if self.images.has(path) && !self.images.pending(path) {
+        // A cached picture is re-decoded; one whose decode failed before the file existed is
+        // retried now that it changed. A picture already queued is left alone.
+        let cached = self.images.has(path);
+        let pending = self.images.pending(path);
+        if (cached && !pending) || (!cached && pending) {
+            self.images.clear_pending(path);
             self.images.mark_pending(path.to_path_buf());
             self.jobs.push(Job::Image { key: path.to_path_buf() });
         }
@@ -596,7 +601,7 @@ impl AppState {
         self.zoom = 1.0;
     }
 
-    fn set_zoom(&mut self, zoom: f32) {
+    pub(crate) fn set_zoom(&mut self, zoom: f32) {
         self.zoom = (zoom.clamp(ZOOM_MIN, ZOOM_MAX) * 10.0).round() / 10.0;
     }
 

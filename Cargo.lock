@@ -1651,6 +1651,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "ureq",
+ "url",
  "winresource",
 ]
 

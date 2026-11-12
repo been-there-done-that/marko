@@ -19,6 +19,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 flate2 = "1"
 roxmltree = "0.20"
 ureq = { version = "2", default-features = false, features = ["tls"] }
+url = "2"
 libc = "0.2"
 procwatch = { git = "https://github.com/been-there-done-that/rune", rev = "892236b7d4e1d75185f806f0d308cfae9249fb62" }
 

@@ -19,6 +19,8 @@ use crate::watch::content_hash;
 
 /// The recovery file's name in the config folder.
 pub const FILE: &str = "recovery.json";
+/// Largest recovery file read (256 MB): a bound on a hand-edited or corrupt file.
+const MAX_RECOVERY_BYTES: u64 = 256 * 1024 * 1024;
 
 /// One unsaved buffer: where it came from (None for an untitled tab), its name, and its text.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -74,6 +76,9 @@ pub fn write(dir: &Path, items: &[Recovered]) -> std::io::Result<()> {
 /// is removed, so one launch restores it once.
 pub fn read(dir: &Path) -> Vec<Recovered> {
     let path = dir.join(FILE);
+    if std::fs::metadata(&path).map(|m| m.len() > MAX_RECOVERY_BYTES).unwrap_or(false) {
+        return Vec::new();
+    }
     let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
     match serde_json::from_str::<Vec<Recovered>>(&text) {
         Ok(items) => {

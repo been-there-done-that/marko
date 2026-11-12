@@ -226,3 +226,19 @@ fn migrate_prefs_copies_session_and_themes_once() {
     migrate_prefs(&old, &Prefs::at(&new_path));
     assert_eq!(load(&Prefs::at(&new_path)).zoom, 0.8);
 }
+
+#[test]
+fn restore_clamps_a_wild_zoom() {
+    for zoom in [f32::INFINITY, f32::NAN, 1e30, -4.0] {
+        let mut s = AppState::new();
+        restore(&mut s, Session { zoom, ..Default::default() }, 0.0);
+        assert!(s.zoom.is_finite(), "{zoom} is not finite");
+        assert!((crate::app::ZOOM_MIN..=crate::app::ZOOM_MAX).contains(&s.zoom), "{zoom} -> {}", s.zoom);
+    }
+}
+
+#[test]
+fn usable_frame_handles_i32_min() {
+    assert!(usable_frame((i32::MIN, i32::MIN, 800, 600)).is_none());
+    assert!(usable_frame((i32::MAX, i32::MAX, 800, 600)).is_none());
+}

@@ -113,14 +113,29 @@ download() {
     need tar
     asset="marko-$PLATFORM-$ARCH.tar.gz"
     if [ "$VERSION" = latest ]; then
-        url="https://github.com/$REPO/releases/latest/download/$asset"
+        base="https://github.com/$REPO/releases/latest/download"
     else
-        url="https://github.com/$REPO/releases/download/$VERSION/$asset"
+        base="https://github.com/$REPO/releases/download/$VERSION"
     fi
+    url="$base/$asset"
     stage="$(mktemp -d)"
     trap 'rm -rf "$stage"' EXIT
     say "downloading $asset ($VERSION)…"
-    curl -fL --progress-bar "$url" -o "$stage/$asset" || die "download failed: $url"
+    curl -fL --proto '=https' --proto-redir '=https' --tlsv1.2 --progress-bar "$url" -o "$stage/$asset" \
+        || die "download failed: $url"
+    say "verifying $asset…"
+    curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 "$base/SHA256SUMS" -o "$stage/SHA256SUMS" \
+        || die "couldn't download SHA256SUMS; refusing to install an unverified binary"
+    want="$(awk -v a="$asset" '$2 == a { print $1; exit }' "$stage/SHA256SUMS")"
+    [ -n "$want" ] || die "SHA256SUMS has no entry for $asset"
+    if command -v sha256sum >/dev/null 2>&1; then
+        got="$(sha256sum "$stage/$asset" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+        got="$(shasum -a 256 "$stage/$asset" | awk '{print $1}')"
+    else
+        die "need sha256sum or shasum to verify the download"
+    fi
+    [ "$got" = "$want" ] || die "checksum mismatch for $asset (got $got, want $want)"
     tar xzf "$stage/$asset" -C "$stage"
     if [ "$PLATFORM" = linux ]; then install_linux "$stage/marko"; else install_macos "$stage"; fi
 }

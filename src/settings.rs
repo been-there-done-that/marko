@@ -148,6 +148,10 @@ pub fn initial() -> Settings {
 /// A `&'static str` for a runtime string. Rune's `Family::Named` and `TextStyle::features` take
 /// `&'static str`; each distinct value leaks once, and there are only as many as the reader picks.
 pub fn intern(s: &str) -> &'static str {
+    // A hand-edited settings file could name an enormous font; do not leak it.
+    if s.len() > 256 {
+        return "";
+    }
     use std::collections::HashSet;
     use std::sync::Mutex;
     static SEEN: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
