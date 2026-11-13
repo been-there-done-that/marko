@@ -39,21 +39,22 @@ Done in this pass:
   narrow image is shrunk rather than decoded at full size and rejected afterwards.
 - Decoded-RGBA cache 48 MB → 32 MB; background 3840 px → 2560 px wide.
 - Strict `max_image_width`/`max_image_height` caps (16,384) as a second line of defence.
+- JPEGs take a fast path through `jpeg-decoder`, which asks the DCT for a 1/8, 1/4 or 1/2 scale
+  output when the picture is larger than the column. A 100 MP photo at 1/4 no longer allocates
+  its full-resolution buffer. CMYK, 16-bit and lossless JPEGs return `None` and fall back to
+  `image`, which handles them.
 
 Remaining, in value order:
 
-1. **Scaled JPEG decode.** JPEG's DCT can be decoded at 1/2, 1/4 or 1/8 scale, which cuts the
-   peak 4–64× for a large photo. `image` 0.25 does not expose it; `zune-jpeg`'s `set_max_*`
-   only **rejects**, it does not downscale. The path is a direct `jpeg-decoder` dependency (it
-   has `scale()`) or upstreaming scaling into `image`. Colour-space (CMYK/YCCK) and EXIF
-   orientation handling come with it.
-2. **Lazy image decoding.** Today every image in the open document is queued on load. Decoding
+1. **Lazy image decoding.** Today every image in the open document is queued on load. Decoding
    only the images within about one viewport of the visible area would cut CPU and the transient
    peak for image-heavy documents. The Markdown image callback already runs during layout and
    knows the visible range.
-3. **Peak is still ~2× the cap.** A 16-megapixel photo can allocate 64 MB in the decoder plus
-   up to 64 MB for RGBA. Lowering `MAX_DECODE_ALLOC` trades support for peak; 64 MB was chosen
-   so a 12–16 MP phone photo still opens.
+2. **Cap concurrent decodes.** Local and web decodes run on separate workers and can peak
+   together. A semaphore would bound the worst case to one image's buffers.
+3. **Peak for non-JPEGs is still ~2× the cap.** PNG/WebP cannot be scaled during decode, so a
+   16-megapixel PNG can allocate 64 MB in the decoder plus up to 64 MB for RGBA. Lowering
+   `MAX_DECODE_ALLOC` trades support for peak; 64 MB lets a 12–16 MP photo open.
 4. **Measure it.** The budget doc has no image-heavy fixture. Add one (a README with several
    large photos) and record peak RSS with `/proc/<pid>/status` sampled during decode.
 

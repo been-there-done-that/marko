@@ -260,6 +260,9 @@ pub fn decode(path: &Path, max_w: u32) -> Option<(rune::Image, usize)> {
     }
     let path = path.to_path_buf();
     decode_with(move || {
+        if let Some(img) = fast_jpeg_file(&path, max_w) {
+            return Some(img);
+        }
         let reader = image::ImageReader::open(&path).ok()?;
         decode_reader(reader)
     }, max_w)
@@ -270,8 +273,70 @@ pub fn decode_bytes(bytes: &[u8], max_w: u32) -> Option<(rune::Image, usize)> {
     if looks_like_svg(bytes) {
         return decode_svg(bytes.to_vec());
     }
+    if let Some(img) = fast_jpeg_bytes(bytes, max_w) {
+        return decode_with(move || Some(img), max_w);
+    }
     let bytes = std::io::Cursor::new(bytes);
     decode_with(move || decode_reader(image::ImageReader::new(bytes)), max_w)
+}
+
+fn fast_jpeg_file(path: &Path, max_w: u32) -> Option<image::DynamicImage> {
+    if !is_jpeg(path) {
+        return None;
+    }
+    decode_jpeg(std::io::BufReader::new(std::fs::File::open(path).ok()?), max_w)
+}
+
+fn fast_jpeg_bytes(bytes: &[u8], max_w: u32) -> Option<image::DynamicImage> {
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return None;
+    }
+    decode_jpeg(std::io::Cursor::new(bytes), max_w)
+}
+
+/// True when the file is a JPEG, by extension or by its `FF D8 FF` magic. A misnamed file still
+/// takes the fast path when its bytes are a JPEG.
+fn is_jpeg(path: &Path) -> bool {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
+    if matches!(ext.as_deref(), Some("jpg" | "jpeg" | "jfif")) {
+        return true;
+    }
+    let mut magic = [0u8; 3];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok()
+        && magic == [0xFF, 0xD8, 0xFF]
+}
+
+/// Decodes a JPEG with `jpeg-decoder`, which can ask the DCT for a half, quarter or eighth-scale
+/// output. That keeps the transient buffer for a large photo far below a full-resolution decode.
+/// Returns `None` for 16-bit or CMYK JPEGs, lossless JPEG, or any error; the caller falls back to
+/// `image`, which handles those.
+fn decode_jpeg<R: std::io::Read>(reader: R, max_w: u32) -> Option<image::DynamicImage> {
+    use jpeg_decoder::{CodingProcess, PixelFormat};
+
+    let mut dec = jpeg_decoder::Decoder::new(reader);
+    dec.set_max_decoding_buffer_size(MAX_DECODE_ALLOC as usize * 2);
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    if !matches!(info.coding_process, CodingProcess::DctSequential | CodingProcess::DctProgressive) {
+        return None;
+    }
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let (tw, th) = target_dims(w, h, max_w, CACHE_BYTES);
+    let (ow, oh) = dec.scale(tw as u16, th as u16).ok()?;
+    let (ow, oh) = (u32::from(ow), u32::from(oh));
+    // Check the scaled output, not the full image: a 100 MP photo at 1/4 is small.
+    if too_big(ow, oh) {
+        return None;
+    }
+    let pixels = dec.decode().ok()?;
+    match info.pixel_format {
+        PixelFormat::RGB24 => Some(image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(ow, oh, pixels)?)),
+        PixelFormat::L8 => Some(image::DynamicImage::ImageLuma8(image::GrayImage::from_raw(ow, oh, pixels)?)),
+        _ => None,
+    }
 }
 
 /// Reads the header first, refuses a picture whose decoded RGBA would exceed the budget, and only
@@ -333,17 +398,38 @@ fn fit(rgba: image::RgbaImage, max_w: u32) -> image::RgbaImage {
 
 fn fit_with(rgba: image::RgbaImage, max_w: u32, max_bytes: usize) -> image::RgbaImage {
     let (w, h) = rgba.dimensions();
+    let (nw, nh) = target_dims(w, h, max_w, max_bytes);
+    if (nw, nh) == (w, h) {
+        return rgba;
+    }
+    image::imageops::resize(&rgba, nw, nh, image::imageops::FilterType::Triangle)
+}
+
+/// The size a picture should be reduced to so it fits both the reading column and the cache,
+/// keeping its aspect ratio. Shared by `fit` and the JPEG fast path, which asks the decoder for a
+/// DCT-scaled output near this size.
+fn target_dims(w: u32, h: u32, max_w: u32, max_bytes: usize) -> (u32, u32) {
     let pixels = u64::from(w) * u64::from(h);
     let max_pixels = (max_bytes / 4) as u64;
     if w <= max_w && pixels <= max_pixels {
-        return rgba;
+        return (w, h);
     }
     let by_width = f64::from(max_w) / f64::from(w);
     let by_pixels = (max_pixels as f64 / pixels as f64).sqrt();
     let scale = by_width.min(by_pixels).min(1.0);
-    let nw = ((f64::from(w) * scale).round() as u32).max(1);
-    let nh = ((f64::from(h) * scale).round() as u32).max(1);
-    image::imageops::resize(&rgba, nw, nh, image::imageops::FilterType::Triangle)
+    let mut nw = ((f64::from(w) * scale).floor() as u32).max(1).min(w).min(max_w.max(1));
+    let mut nh = ((f64::from(h) * scale).floor() as u32).max(1).min(h);
+    // Floor can still land one or two pixels over after rounding; shave the longer side.
+    while u64::from(nw) * u64::from(nh) > max_pixels && (nw > 1 || nh > 1) {
+        if nw >= nh && nw > 1 {
+            nw -= 1;
+        } else if nh > 1 {
+            nh -= 1;
+        } else {
+            break;
+        }
+    }
+    (nw, nh)
 }
 
 /// Largest an SVG may be after gzip decompression (32 MB), matching the rasteriser's own cap.

@@ -91,6 +91,43 @@ fn fit_scales_a_tall_image_to_the_cache() {
 }
 
 #[test]
+fn target_dims_fit_or_scale() {
+    assert_eq!(target_dims(800, 600, MAX_DECODE_WIDTH, CACHE_BYTES), (800, 600));
+    assert_eq!(target_dims(4000, 3000, MAX_DECODE_WIDTH, CACHE_BYTES), (1920, 1440));
+    let (w, h) = target_dims(100, 100_000, MAX_DECODE_WIDTH, 1_000_000);
+    assert!(u64::from(w) * u64::from(h) <= 250_000, "the pixel budget is respected");
+    assert!(h < 100_000);
+}
+
+#[test]
+fn jpeg_fast_path_uses_dct_scaling() {
+    let src = image::RgbImage::from_pixel(1600, 1200, image::Rgb([200, 30, 30]));
+    let mut jpg = Vec::new();
+    src.write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg).unwrap();
+    let img = decode_jpeg(std::io::Cursor::new(jpg.as_slice()), 800).expect("a JPEG decodes");
+    assert_eq!((img.width(), img.height()), (800, 600), "half-scale DCT, not a full decode");
+}
+
+#[test]
+fn decoder_uses_the_jpeg_fast_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("photo.jpg");
+    image::RgbImage::from_pixel(1600, 1200, image::Rgb([10, 120, 200])).save(&path).unwrap();
+    let (img, bytes) = decode(&path, 800).expect("a JPEG decodes");
+    assert_eq!(img.size(), Some([800, 600]));
+    assert_eq!(bytes, 800 * 600 * 4);
+}
+
+#[test]
+fn grayscale_jpeg_decodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gray.jpg");
+    image::GrayImage::from_pixel(400, 300, image::Luma([128])).save(&path).unwrap();
+    let (img, _) = decode(&path, MAX_DECODE_WIDTH).expect("a grayscale JPEG decodes");
+    assert_eq!(img.size(), Some([400, 300]));
+}
+
+#[test]
 fn a_header_only_huge_png_is_refused() {
     // A PNG signature + IHDR claiming 100000 x 100000, with no IDAT. The dimensions are read
     // from the header, so the picture is refused before any pixel buffer exists.
@@ -103,6 +140,14 @@ fn a_header_only_huge_png_is_refused() {
     png.extend_from_slice(&ihdr);
     png.extend_from_slice(&crc32(&ihdr).to_be_bytes());
     assert!(decode_bytes(&png, MAX_DECODE_WIDTH).is_none());
+}
+
+#[test]
+fn a_corrupt_jpeg_is_refused_by_both_paths() {
+    // SOI + a truncated APP0 header: the fast path cannot read the info, and `image` cannot
+    // construct a decoder, so the picture is refused rather than half-drawn.
+    let jpg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0];
+    assert!(decode_bytes(&jpg, MAX_DECODE_WIDTH).is_none());
 }
 
 fn crc32(data: &[u8]) -> u32 {

@@ -13,15 +13,17 @@ thin LTO, stripped) on the Linux development laptop (Wayland session, 16 logical
 | Tab switch (warm) | next frame (≤ 8 ms at 120 Hz) | Not measured | Needs a frame profile of a running window. |
 | Scroll a 10k-line doc | holds 120 Hz on ProMotion | Not measured | Needs a 10k-line fixture and a bench run; no such fixture exists in `fixtures/`. |
 | Live reload of a 200 KB file | visible ≤ 100 ms after save | Not measured | Needs a timed save and a screen capture. |
-| Release binary (stripped, LTO) | ≤ 25 MB per OS | 27,275,672 bytes (26.0 MB) on Linux, from `ls -l` | Linux x86-64 only. 1 MB over budget. `opt-level = "s"`, `lto = "fat"` and `codegen-units = 1` brought it down from 42.2 MB; the last megabyte would need `opt-level = "z"` or dropping a feature such as Mermaid. |
+| Release binary (stripped, LTO) | ≤ 25 MB per OS | 27,434,136 bytes (26.2 MB) on Linux, from `ls -l` | Linux x86-64 only. 1.2 MB over budget. `opt-level = "s"`, `lto = "fat"` and `codegen-units = 1` brought it down from 42.2 MB; the scaled-JPEG fast path added about 155 KB. The last megabyte would need `opt-level = "z"` or dropping a feature such as Mermaid. |
 
 ## Image memory
 
 Decoding keeps at most 32 MB of decoded RGBA at once, and a picture whose decoded form would
 exceed 64 MB is refused from its header before the decoder allocates. A tall image is scaled to
-the cache budget instead of being decoded at full size and then rejected. The background is
-decoded at 2560 px wide. These bound the transient decode peak; they do not change the RSS
-number above, which was taken with one small document and no large image on screen.
+the cache budget instead of being decoded at full size and then rejected. JPEGs are decoded at a
+1/8, 1/4 or 1/2 DCT scale when they are larger than the reading column, so a large photo never
+allocates its full-resolution buffer. The background is decoded at 2560 px wide. These bound the
+transient decode peak; they do not change the RSS number above, which was taken with one small
+document and no large image on screen.
 
 ## Cold start
 
