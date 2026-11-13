@@ -221,6 +221,14 @@ fn is_atomic_temp(path: &Path) -> bool {
     })
 }
 
+/// True when `path`, relative to `root`, passes through a name the sidebar scan skips (`target`,
+/// `node_modules`, hidden ones). A build or install there would otherwise queue rescan after
+/// rescan of the whole root for changes the scan never shows.
+fn under_skipped(path: &Path, root: &Path) -> bool {
+    path.strip_prefix(root)
+        .is_ok_and(|rel| rel.components().any(|c| c.as_os_str().to_str().is_some_and(crate::sidebar::scan_skips)))
+}
+
 /// The paths a raw event means to the app: an open file it touches, and the root it falls under
 /// when the event creates, removes or renames something there. Reads and attribute-only changes
 /// are ignored, so a reload that reads a file cannot trigger another reload.
@@ -241,6 +249,7 @@ fn keys_for(ev: &Event, interest: &Interest) -> Vec<PathBuf> {
             && !interest.files.contains(path)
             && !is_atomic_temp(path)
             && let Some(root) = interest.roots.iter().find(|r| path.starts_with(r))
+            && !under_skipped(path, root)
             && !keys.contains(root)
         {
             keys.push(root.clone());
