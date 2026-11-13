@@ -15,6 +15,9 @@ param(
 )
 $ErrorActionPreference = "Stop"
 
+# Older Windows PowerShell defaults to TLS 1.0; GitHub requires 1.2 or newer.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+
 $Repo = if ($env:MARKO_REPO) { $env:MARKO_REPO } else { "been-there-done-that/marko" }
 $Dir = Join-Path $env:LOCALAPPDATA "Programs\Marko"
 $Shortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Marko.lnk"
@@ -41,14 +44,22 @@ if ($Uninstall) {
 
 $arch = if ([Environment]::Is64BitOperatingSystem) { "x86_64" } else { throw "marko: only 64-bit Windows is supported" }
 $asset = "marko-windows-$arch.zip"
-$url = if ($Version -eq "latest") { "https://github.com/$Repo/releases/latest/download/$asset" }
-       else { "https://github.com/$Repo/releases/download/$Version/$asset" }
+$base = if ($Version -eq "latest") { "https://github.com/$Repo/releases/latest/download" }
+        else { "https://github.com/$Repo/releases/download/$Version" }
+$url = "$base/$asset"
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("marko-" + [guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
     Write-Host "marko: downloading $asset ($Version)..."
     Invoke-WebRequest -UseBasicParsing $url -OutFile (Join-Path $tmp $asset)
+    Write-Host "marko: verifying $asset..."
+    $sums = Join-Path $tmp "SHA256SUMS"
+    Invoke-WebRequest -UseBasicParsing "$base/SHA256SUMS" -OutFile $sums
+    $want = (Get-Content $sums | Where-Object { ($_ -split '\s+')[1] -eq $asset } | ForEach-Object { ($_ -split '\s+')[0] } | Select-Object -First 1)
+    if (-not $want) { throw "marko: SHA256SUMS has no entry for $asset" }
+    $got = (Get-FileHash -Algorithm SHA256 (Join-Path $tmp $asset)).Hash
+    if ($got -ne $want) { throw "marko: checksum mismatch for $asset" }
     Get-Process marko -ErrorAction SilentlyContinue | Stop-Process
     New-Item -ItemType Directory -Force $Dir | Out-Null
     Expand-Archive -Force (Join-Path $tmp $asset) $Dir

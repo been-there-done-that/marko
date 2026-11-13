@@ -60,7 +60,7 @@ pub fn view(s: &AppState, k: &Kit, t: &Tokens) -> El {
 /// or the accent dot while the tab has changes the pointer hasn't reached yet.
 fn tab_el(tab: &Tab, title: &str, active: bool, k: &Kit, t: &Tokens) -> El {
     let id = tab.id;
-    let unread = (tab.changed && !active) || editor::dirty(tab);
+    let unread = (tab.changed && !active) || editor::dirty_hint(tab);
     let ink = if active { t.fg } else { t.fg2 };
     let mark = if active { t.accent } else { t.fg3 };
 

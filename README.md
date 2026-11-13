@@ -43,7 +43,9 @@ This installs to `%LOCALAPPDATA%\Programs\Marko`, adds a Start menu entry and pu
 | Build from source | `./install.sh --from-source` (needs Rust) | `cargo build --release` |
 | Uninstall | `sh -s -- --uninstall` | `.\install.ps1 -Uninstall` |
 
-Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Releases](https://github.com/been-there-done-that/marko/releases) page.
+Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Releases](https://github.com/been-there-done-that/marko/releases) page. The installers verify that checksum before running anything.
+
+> Marko isn't notarized by Apple. The macOS installer removes the download quarantine flag after the SHA-256 check passes; if you'd rather keep Gatekeeper in the loop, build it yourself with `--from-source`.
 
 ## Use
 
@@ -51,7 +53,14 @@ Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Rel
 marko notes.md            # open a file
 marko README.md docs/     # files open as tabs, folders join the sidebar
 marko --wait notes.md     # stay attached to the terminal until the window closes
+marko --version           # print the version
+marko update --check      # is a newer release available?
+marko update              # download, verify and install it
 ```
+
+`marko update` checks the latest GitHub release, verifies its SHA-256 against `SHA256SUMS`, and
+replaces the installed binary. Restart Marko to use the new version. On Windows, close Marko
+before running it.
 
 From a terminal, `marko` opens its window and gives the prompt straight back, as `code .` does; the window carries on after you close the terminal.
 

@@ -5,6 +5,7 @@
 
 mod app;
 mod background;
+mod cli;
 mod commands;
 mod detach;
 mod edit;
@@ -18,6 +19,7 @@ mod net;
 mod open;
 mod paths;
 mod progress;
+mod recovery;
 mod session;
 mod settings;
 mod settings_sync;
@@ -27,6 +29,7 @@ mod tabs;
 mod theme;
 mod themes;
 mod ui;
+mod update;
 mod version;
 mod watch;
 mod worker;
@@ -54,11 +57,15 @@ const WINDOW_CLASS: &str = "marko";
 /// How long a changed session waits before it is saved. Slightly longer than the debounce's
 /// own quiet period, so the wake-up that checks it always finds it due.
 const SAVE_WAKE: Duration = Duration::from_millis(1100);
+/// How often a dirty buffer is snapshotted for crash recovery.
+const RECOVERY_EVERY: f64 = 5.0;
 
 /// The worker's job queue. Set once the window is ready.
 static JOBS: OnceLock<Sender<Job>> = OnceLock::new();
 /// Saving state, set once the window is ready.
 static PERSIST: OnceLock<Mutex<Persist>> = OnceLock::new();
+/// The recovery writer, set once the window is ready (primary instance only).
+static RECOVERY_TX: OnceLock<Sender<RecoveryMsg>> = OnceLock::new();
 /// Live reload, started once the window is ready. Its watched folders follow the tabs and roots.
 static WATCHER: OnceLock<Mutex<Watcher>> = OnceLock::new();
 
@@ -79,6 +86,16 @@ struct Persist {
     debounce: SaveDebounce,
     /// Sends due snapshots to the saver thread, the only thread that writes the prefs.
     saves: Sender<Session>,
+    /// When the last crash-recovery snapshot was taken.
+    recovery_at: f64,
+}
+
+/// Work for the recovery writer thread.
+enum RecoveryMsg {
+    Snapshot(Vec<recovery::Recovered>),
+    /// Asks the writer to acknowledge everything queued before it, so a close can wait for the
+    /// final snapshot to land instead of racing an older one.
+    Flush(Sender<()>),
 }
 
 /// Runs queued jobs on this thread. Scenes render without a worker, so they settle their loads here.
@@ -263,7 +280,12 @@ static SCENES: &[Scene] = &[
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Version, help and update run in this terminal. They must come before `detach`, which
+    // otherwise hands the prompt back with no output.
+    if let Some(code) = cli::run() {
+        return std::process::ExitCode::from(code as u8);
+    }
     // From a terminal, give the terminal back: the window runs in a detached copy.
     detach::maybe_detach();
     // SAFETY: single-threaded, before any thread starts, so nothing else reads or writes the environment.
@@ -309,6 +331,7 @@ fn main() {
     let app = rune::App::new(spec)
         .window_options(options)
         .on_window(|win| WINDOW.with(|w| *w.borrow_mut() = Some(win.clone())))
+        .on_close(recovery_on_close)
         .on_quit(save_on_quit)
         .titlebar(rune::Titlebar::new(theme::BAR_H));
     #[cfg(target_os = "macos")]
@@ -320,6 +343,7 @@ fn main() {
         }
     })
     .run();
+    std::process::ExitCode::SUCCESS
 }
 
 /// Runs once the window is up: starts the worker, takes the primary lock, restores the saved
@@ -350,7 +374,15 @@ fn start(handle: AppHandle<AppState>) {
         fonts_handle.update(move |s, _| s.fonts = list);
     });
     let saved = session::load(&prefs);
-    let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
+    let config_dir = prefs.path().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let primary = config_dir.as_deref().and_then(session::primary_lock);
+    let is_primary = primary.is_some();
+    // Only the primary window restores recovery, so two windows don't reopen the same buffers.
+    let recovered = if is_primary {
+        config_dir.as_deref().map(recovery::read).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let (saves, queued) = mpsc::channel::<Session>();
     thread::Builder::new()
         .name("session-save".into())
@@ -360,13 +392,49 @@ fn start(handle: AppHandle<AppState>) {
             }
         })
         .expect("the OS refused to start the session saver thread");
-    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves }));
+    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves, recovery_at: 0.0 }));
+    if is_primary && let Some(dir) = config_dir {
+        let (rec_tx, rec_rx) = mpsc::channel::<RecoveryMsg>();
+        let _ = thread::Builder::new().name("recovery-save".into()).spawn(move || {
+            while let Ok(msg) = rec_rx.recv() {
+                match msg {
+                    RecoveryMsg::Snapshot(mut items) => {
+                        // Keep only the last of a burst, but stop at a flush so its ack is not lost.
+                        loop {
+                            match rec_rx.try_recv() {
+                                Ok(RecoveryMsg::Snapshot(next)) => items = next,
+                                Ok(RecoveryMsg::Flush(ack)) => {
+                                    if let Err(e) = recovery::write(&dir, &items) {
+                                        eprintln!("marko: couldn't write the recovery file: {e}");
+                                    }
+                                    let _ = ack.send(());
+                                    break;
+                                }
+                                Err(_) => {
+                                    if let Err(e) = recovery::write(&dir, &items) {
+                                        eprintln!("marko: couldn't write the recovery file: {e}");
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // Everything queued before the flush has been written already.
+                    RecoveryMsg::Flush(ack) => {
+                        let _ = ack.send(());
+                    }
+                }
+            }
+        });
+        let _ = RECOVERY_TX.set(rec_tx);
+    }
 
     let cli: Vec<PathBuf> = rune::extra_args().iter().filter(|a| !detach::is_flag(a)).map(PathBuf::from).collect();
     handle.update(move |s, _| {
         let now = s.now;
         session::restore(s, saved, now);
         s.open_paths(&cli, now);
+        recovery::restore(s, recovered);
     });
 }
 
@@ -375,7 +443,9 @@ fn start(handle: AppHandle<AppState>) {
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
     s.sync_preview_scroll(tx);
+    let preview_changed = s.catch_up_preview(now, tx);
     s.sync_edit_images();
+    s.sync_visible_images();
     ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
     settings_sync::tick(s, tx);
@@ -418,9 +488,15 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
                 snapshot.frame = p.frame;
                 let _ = p.saves.send(snapshot);
             }
+            if now - p.recovery_at >= RECOVERY_EVERY {
+                p.recovery_at = now;
+                if let Some(tx) = RECOVERY_TX.get() {
+                    let _ = tx.send(RecoveryMsg::Snapshot(recovery::snapshot(s)));
+                }
+            }
         }
     }
-    cleared || stats_changed || progress_changed || bg_changed
+    cleared || stats_changed || progress_changed || bg_changed || preview_changed
 }
 
 /// Writes the session one last time as the app quits, with the window's frame, so a change
@@ -428,18 +504,52 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
 /// UI thread and writes synchronously; the prefs file is replaced through a rename, so a save
 /// the saver thread makes at the same time can't leave it half-written.
 fn save_on_quit(s: &mut AppState, _: &mut Tx) {
+    if let Some(persist) = PERSIST.get() {
+        let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
+        if p.primary.is_some() {
+            let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
+            if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
+                p.frame = Some(frame);
+            }
+            let mut snapshot = session::capture(s);
+            snapshot.frame = p.frame;
+            session::save(&mut Prefs::open(APP_ID), &snapshot);
+        }
+    }
+    // After the session guard is released: recovery takes the same lock.
+    write_recovery(s);
+}
+
+/// Snapshots unsaved buffers as the window closes, so the next launch can restore them. Rune
+/// cannot cancel a close, so this is the only place the edits can be kept.
+fn recovery_on_close(s: &mut AppState, _: &mut Tx) {
+    write_recovery(s);
+}
+
+/// Writes the dirty buffers to the config folder, or clears the snapshot when there are none.
+/// Only the primary window writes, matching the session.
+fn write_recovery(s: &AppState) {
     let Some(persist) = PERSIST.get() else { return };
-    let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
-    if p.primary.is_none() {
+    let primary = persist.lock().unwrap_or_else(|e| e.into_inner()).primary.is_some();
+    if !primary {
         return;
     }
-    let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
-    if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
-        p.frame = Some(frame);
+    let Some(dir) = Prefs::open(APP_ID).path().and_then(|p| p.parent().map(|p| p.to_path_buf())) else { return };
+    let items = recovery::snapshot(s);
+    // Hand the final snapshot to the writer and wait for it, so an older queued snapshot cannot
+    // land after this one. Fall back to a synchronous write when the writer is gone.
+    if let Some(tx) = RECOVERY_TX.get() {
+        let (ack_tx, ack_rx) = mpsc::channel();
+        if tx.send(RecoveryMsg::Snapshot(items.clone())).is_ok()
+            && tx.send(RecoveryMsg::Flush(ack_tx)).is_ok()
+            && ack_rx.recv_timeout(Duration::from_millis(500)).is_ok()
+        {
+            return;
+        }
     }
-    let mut snapshot = session::capture(s);
-    snapshot.frame = p.frame;
-    session::save(&mut Prefs::open(APP_ID), &snapshot);
+    if let Err(e) = recovery::write(&dir, &items) {
+        eprintln!("marko: couldn't write the recovery file: {e}");
+    }
 }
 
 #[cfg(test)]

@@ -2,24 +2,28 @@
 //! decoding off the UI thread, and a bounded cache of the decoded pictures.
 
 use std::collections::{HashMap, HashSet};
+use std::io::Read as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use pulldown_cmark::{Event, Parser, Tag};
 
 use crate::theme::READ_W_WIDE;
 
 /// Most decoded pictures kept at once.
-pub const CACHE_ENTRIES: usize = 64;
-/// Most decoded RGBA bytes kept at once (128 MB).
-pub const CACHE_BYTES: usize = 128 * 1024 * 1024;
+pub const CACHE_ENTRIES: usize = 32;
+/// Most decoded RGBA bytes kept at once (32 MB). `rune` keeps these as GPU textures, but on an
+/// integrated GPU they are shared system memory, so this stays well inside the process budget.
+pub const CACHE_BYTES: usize = 32 * 1024 * 1024;
 /// Wider pictures are scaled down on decode, to twice the reading column (1920 px).
 pub const MAX_DECODE_WIDTH: u32 = 2 * READ_W_WIDE as u32;
-/// Largest allocation the decoder may make for one picture.
-const MAX_DECODE_ALLOC: u64 = 256 * 1024 * 1024;
+/// Largest allocation the decoder may make for one picture. Bounded so a huge photo cannot push
+/// the process far past its memory budget. 64 MB is about a 16-megapixel image; larger ones are
+/// refused before decoding, because `image`'s `max_alloc` is advisory and some decoders ignore it.
+const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest SVG file read (a vector drawing has no business being larger).
 const MAX_SVG_BYTES: u64 = 20 * 1024 * 1024;
 /// Side, in points, an SVG with no readable size is drawn at.
@@ -118,12 +122,19 @@ pub fn split_srcs(doc: &Path, srcs: &[String]) -> (Vec<PathBuf>, Vec<String>) {
 
 /// The picture cache: decoded images by absolute path, bounded by entries and by decoded bytes,
 /// least recently used first out. A path that was asked for and has no picture is `pending`:
-/// queued, or failed, so it is not asked for again.
+/// queued or still decoding. One whose decode failed is `failed`, so a broken picture frees its
+/// slot and is not asked for again until the file changes.
 pub struct ImageCache {
     entries: HashMap<PathBuf, Entry>,
     pending: HashSet<PathBuf>,
+    failed: HashSet<PathBuf>,
+    /// Paths decoded since they entered the window. Keeps a stable window from re-decoding a
+    /// picture the cache had to evict; a window change clears the ones that are new to it.
+    decoded: HashSet<PathBuf>,
     bytes: usize,
     tick: Cell<u64>,
+    /// Bumped whenever the decoded set changes, so a memoised view knows to rebuild.
+    version: u64,
 }
 
 struct Entry {
@@ -140,7 +151,15 @@ impl Default for ImageCache {
 
 impl ImageCache {
     pub fn new() -> Self {
-        Self { entries: HashMap::new(), pending: HashSet::new(), bytes: 0, tick: Cell::new(0) }
+        Self {
+            entries: HashMap::new(),
+            pending: HashSet::new(),
+            failed: HashSet::new(),
+            decoded: HashSet::new(),
+            bytes: 0,
+            tick: Cell::new(0),
+            version: 0,
+        }
     }
 
     fn next_tick(&self) -> u64 {
@@ -170,6 +189,11 @@ impl ImageCache {
     /// entries (never this one) until both bounds hold again.
     pub fn insert(&mut self, p: PathBuf, img: rune::Image, bytes: usize) {
         self.pending.remove(&p);
+        self.failed.remove(&p);
+        if self.decoded.len() >= 4096 {
+            self.decoded.clear();
+        }
+        self.decoded.insert(p.clone());
         if let Some(old) = self.entries.remove(&p) {
             self.bytes -= old.bytes;
         }
@@ -183,6 +207,17 @@ impl ImageCache {
                 self.bytes -= e.bytes;
             }
         }
+        self.version = self.version.wrapping_add(1);
+    }
+
+    /// Bumped whenever a picture is added or evicted.
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// How many pictures are queued or failed, for the fetch cap.
+    pub fn pending_len(&self) -> usize {
+        self.pending.len()
     }
 
     /// The local files whose pictures are cached, for the watcher to follow.
@@ -204,6 +239,33 @@ impl ImageCache {
         self.pending.insert(p);
     }
 
+    /// Records that `p` failed to decode. Its slot is freed, and it is not asked for again until
+    /// the file changes, so a broken picture cannot fill the in-flight cap or spin the decoder.
+    pub fn mark_failed(&mut self, p: PathBuf) {
+        self.pending.remove(&p);
+        if self.failed.len() >= 512 {
+            self.failed.clear();
+        }
+        self.failed.insert(p);
+    }
+
+    pub fn failed(&self, p: &Path) -> bool {
+        self.failed.contains(p)
+    }
+
+    pub fn clear_failed(&mut self, p: &Path) {
+        self.failed.remove(p);
+    }
+
+    /// True when `p` has been decoded since it entered the current window.
+    pub fn decoded(&self, p: &Path) -> bool {
+        self.decoded.contains(p)
+    }
+
+    pub fn clear_decoded(&mut self, p: &Path) {
+        self.decoded.remove(p);
+    }
+
     /// Decoded bytes held.
     #[allow(dead_code)] // For the memory budget (Task 9) and the tests.
     pub fn bytes(&self) -> usize {
@@ -221,6 +283,14 @@ impl ImageCache {
 fn shared_cache() -> &'static rune::ImageCache {
     static CACHE: OnceLock<rune::ImageCache> = OnceLock::new();
     CACHE.get_or_init(|| rune::ImageCache::new(Arc::new(|| {})))
+}
+
+/// One decode at a time across the local and web workers. The transient buffers are the largest
+/// memory spike in the app; two large pictures decoded together would double it.
+static DECODE_LOCK: Mutex<()> = Mutex::new(());
+
+fn decode_lock() -> std::sync::MutexGuard<'static, ()> {
+    DECODE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The cache key a fetched web image is stored under. Not an absolute path, so it never meets a local file.
@@ -241,11 +311,15 @@ pub fn decode(path: &Path, max_w: u32) -> Option<(rune::Image, usize)> {
         }
         return decode_svg(std::fs::read(path).ok()?);
     }
+    // The fast path takes the decode lock itself, so it must run before `decode_with`, which
+    // takes the same (non-reentrant) lock for the RGBA conversion and scaling.
+    if let Some(img) = fast_jpeg_file(path, max_w) {
+        return decode_with(move || Some(img), max_w);
+    }
     let path = path.to_path_buf();
     decode_with(move || {
-        let mut reader = image::ImageReader::open(&path).ok()?.with_guessed_format().ok()?;
-        limit(&mut reader);
-        reader.decode().ok()
+        let reader = image::ImageReader::open(&path).ok()?;
+        decode_reader(reader)
     }, max_w)
 }
 
@@ -254,29 +328,114 @@ pub fn decode_bytes(bytes: &[u8], max_w: u32) -> Option<(rune::Image, usize)> {
     if looks_like_svg(bytes) {
         return decode_svg(bytes.to_vec());
     }
-    let bytes = bytes.to_vec();
-    decode_with(move || {
-        let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
-        limit(&mut reader);
-        reader.decode().ok()
-    }, max_w)
+    if let Some(img) = fast_jpeg_bytes(bytes, max_w) {
+        return decode_with(move || Some(img), max_w);
+    }
+    let bytes = std::io::Cursor::new(bytes);
+    decode_with(move || decode_reader(image::ImageReader::new(bytes)), max_w)
 }
+
+fn fast_jpeg_file(path: &Path, max_w: u32) -> Option<image::DynamicImage> {
+    if !is_jpeg(path) {
+        return None;
+    }
+    decode_jpeg(std::io::BufReader::new(std::fs::File::open(path).ok()?), max_w)
+}
+
+fn fast_jpeg_bytes(bytes: &[u8], max_w: u32) -> Option<image::DynamicImage> {
+    if !bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return None;
+    }
+    decode_jpeg(std::io::Cursor::new(bytes), max_w)
+}
+
+/// True when the file is a JPEG, by extension or by its `FF D8 FF` magic. A misnamed file still
+/// takes the fast path when its bytes are a JPEG.
+fn is_jpeg(path: &Path) -> bool {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase());
+    if matches!(ext.as_deref(), Some("jpg" | "jpeg" | "jfif")) {
+        return true;
+    }
+    let mut magic = [0u8; 3];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok()
+        && magic == [0xFF, 0xD8, 0xFF]
+}
+
+/// Decodes a JPEG with `jpeg-decoder`, which can ask the DCT for a half, quarter or eighth-scale
+/// output. That keeps the transient buffer for a large photo far below a full-resolution decode.
+/// Returns `None` for 16-bit or CMYK JPEGs, lossless JPEG, or any error; the caller falls back to
+/// `image`, which handles those.
+fn decode_jpeg<R: std::io::Read>(reader: R, max_w: u32) -> Option<image::DynamicImage> {
+    use jpeg_decoder::{CodingProcess, PixelFormat};
+
+    // The DCT decode is the expensive part; serialize it with the other decoders too.
+    let _guard = decode_lock();
+    let mut dec = jpeg_decoder::Decoder::new(reader);
+    dec.set_max_decoding_buffer_size(MAX_DECODE_ALLOC as usize * 2);
+    dec.read_info().ok()?;
+    let info = dec.info()?;
+    if !matches!(info.coding_process, CodingProcess::DctSequential | CodingProcess::DctProgressive) {
+        return None;
+    }
+    let (w, h) = (u32::from(info.width), u32::from(info.height));
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let (tw, th) = target_dims(w, h, max_w, CACHE_BYTES);
+    let (ow, oh) = dec.scale(tw as u16, th as u16).ok()?;
+    let (ow, oh) = (u32::from(ow), u32::from(oh));
+    // Check the scaled output, not the full image: a 100 MP photo at 1/4 is small.
+    if too_big(ow, oh) {
+        return None;
+    }
+    let pixels = dec.decode().ok()?;
+    match info.pixel_format {
+        PixelFormat::RGB24 => Some(image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(ow, oh, pixels)?)),
+        PixelFormat::L8 => Some(image::DynamicImage::ImageLuma8(image::GrayImage::from_raw(ow, oh, pixels)?)),
+        _ => None,
+    }
+}
+
+/// Reads the header first, refuses a picture whose decoded RGBA would exceed the budget, and only
+/// then decodes it. The dimensions are strict, so a malformed header cannot make a codec allocate
+/// far more than the limits allow.
+fn decode_reader<R: std::io::BufRead + std::io::Seek>(reader: image::ImageReader<R>) -> Option<image::DynamicImage> {
+    use image::ImageDecoder as _;
+
+    let mut reader = reader.with_guessed_format().ok()?;
+    limit(&mut reader);
+    let decoder = reader.into_decoder().ok()?;
+    let (w, h) = decoder.dimensions();
+    if too_big(w, h) {
+        return None;
+    }
+    image::DynamicImage::from_decoder(decoder).ok()
+}
+
+/// Whether a picture's decoded RGBA would exceed the per-image budget. Checked from the header so
+/// the decoder never allocates it.
+fn too_big(w: u32, h: u32) -> bool {
+    u64::from(w) * u64::from(h) * 4 > MAX_DECODE_ALLOC
+}
+
+/// Largest width or height a decoder may report. The pixel product is checked separately; this
+/// rejects absurd headers before a codec can trust them.
+const MAX_DECODE_SIDE: u32 = 16_384;
 
 fn limit<R: std::io::BufRead + std::io::Seek>(reader: &mut image::ImageReader<R>) {
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    // Strict dimension caps as well: `max_alloc` is advisory for some decoders.
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
     reader.limits(limits);
 }
 
 fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::UnwindSafe, max_w: u32) -> Option<(rune::Image, usize)> {
+    let _guard = decode_lock();
     // A codec can panic on a malformed file; that fails this one image, not the worker.
     let rgba = catch_unwind(move || read().map(image::DynamicImage::into_rgba8)).ok()??;
-    let rgba = if rgba.width() > max_w {
-        let h = (u64::from(rgba.height()) * u64::from(max_w) / u64::from(rgba.width())).max(1) as u32;
-        image::imageops::resize(&rgba, max_w, h, image::imageops::FilterType::Triangle)
-    } else {
-        rgba
-    };
+    let rgba = fit(rgba, max_w);
     let (w, h) = rgba.dimensions();
     let bytes = w as usize * h as usize * 4;
     if bytes > CACHE_BYTES {
@@ -287,9 +446,85 @@ fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::
     Some((img, bytes))
 }
 
+/// Scales a decoded picture down so it fits both the reading column and the cache, keeping its
+/// aspect ratio. Width is capped at `max_w`; if the result would still exceed the cache, it is
+/// scaled further. This also catches a tall, narrow image, which a width-only cap would keep at
+/// full size until the cache rejected it after decoding.
+fn fit(rgba: image::RgbaImage, max_w: u32) -> image::RgbaImage {
+    fit_with(rgba, max_w, CACHE_BYTES)
+}
+
+fn fit_with(rgba: image::RgbaImage, max_w: u32, max_bytes: usize) -> image::RgbaImage {
+    let (w, h) = rgba.dimensions();
+    let (nw, nh) = target_dims(w, h, max_w, max_bytes);
+    if (nw, nh) == (w, h) {
+        return rgba;
+    }
+    image::imageops::resize(&rgba, nw, nh, image::imageops::FilterType::Triangle)
+}
+
+/// The size a picture should be reduced to so it fits both the reading column and the cache,
+/// keeping its aspect ratio. Shared by `fit` and the JPEG fast path, which asks the decoder for a
+/// DCT-scaled output near this size.
+fn target_dims(w: u32, h: u32, max_w: u32, max_bytes: usize) -> (u32, u32) {
+    let pixels = u64::from(w) * u64::from(h);
+    let max_pixels = (max_bytes / 4) as u64;
+    if w <= max_w && pixels <= max_pixels {
+        return (w, h);
+    }
+    let by_width = f64::from(max_w) / f64::from(w);
+    let by_pixels = (max_pixels as f64 / pixels as f64).sqrt();
+    let scale = by_width.min(by_pixels).min(1.0);
+    let mut nw = ((f64::from(w) * scale).floor() as u32).max(1).min(w).min(max_w.max(1));
+    let mut nh = ((f64::from(h) * scale).floor() as u32).max(1).min(h);
+    // Floor can still land one or two pixels over after rounding; shave the longer side.
+    while u64::from(nw) * u64::from(nh) > max_pixels && (nw > 1 || nh > 1) {
+        if nw >= nh && nw > 1 {
+            nw -= 1;
+        } else if nh > 1 {
+            nh -= 1;
+        } else {
+            break;
+        }
+    }
+    (nw, nh)
+}
+
+/// Largest an SVG may be after gzip decompression (32 MB), matching the rasteriser's own cap.
+const MAX_SVG_DECOMPRESSED: u64 = 32 * 1024 * 1024;
+
+/// Gunzips `bytes` but never produces more than `cap` bytes, so a small archive cannot expand
+/// into an unbounded allocation.
+fn bounded_gunzip(bytes: &[u8], cap: u64) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    flate2::read::GzDecoder::new(bytes).take(cap + 1).read_to_end(&mut out).ok()?;
+    (out.len() as u64 <= cap).then_some(out)
+}
+
+/// True when the drawing names no external file: `<image>` and `<feImage>` may only carry
+/// `data:` URIs. usvg's default resolver otherwise calls `std::fs::read` on whatever path an
+/// `href` names, so a malicious drawing could block on a FIFO or read `/dev/zero` until memory
+/// runs out. Anything that does not parse as XML is refused too.
+fn svg_is_self_contained(bytes: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(bytes) else { return false };
+    let Ok(doc) = roxmltree::Document::parse(text) else { return false };
+    doc.descendants()
+        .filter(|n| matches!(n.tag_name().name(), "image" | "feImage"))
+        .all(|n| {
+            n.attributes()
+                .filter(|a| a.name() == "href")
+                .all(|a| a.value().trim_start().to_ascii_lowercase().starts_with("data:"))
+        })
+}
+
 /// Rasterises SVG (or gzipped SVG) bytes at the drawing's own size, no wider than the wide
 /// reading column.
 fn decode_svg(bytes: Vec<u8>) -> Option<(rune::Image, usize)> {
+    let _guard = decode_lock();
+    let bytes = if bytes.starts_with(&[0x1f, 0x8b]) { bounded_gunzip(&bytes, MAX_SVG_DECOMPRESSED)? } else { bytes };
+    if !svg_is_self_contained(&bytes) {
+        return None;
+    }
     let side = svg_size(&bytes).map_or(SVG_DEFAULT_PT, |(w, h)| w.max(h)).clamp(1.0, MAX_DECODE_WIDTH as f32);
     let img = catch_unwind(AssertUnwindSafe(|| shared_cache().svg(bytes, side, 1.0))).ok()?;
     let [w, h] = img.wait().ok()?;

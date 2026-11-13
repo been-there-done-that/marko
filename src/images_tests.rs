@@ -27,13 +27,13 @@ fn image_srcs_skips_code_blocks() {
 #[test]
 fn cache_evicts_by_bytes() {
     let mut c = ImageCache::new();
-    let mb50 = 50 * 1024 * 1024;
-    c.insert(PathBuf::from("/a.png"), tiny(), mb50);
-    c.insert(PathBuf::from("/b.png"), tiny(), mb50);
-    c.insert(PathBuf::from("/c.png"), tiny(), mb50);
+    let part = CACHE_BYTES / 3;
+    for name in ["/a.png", "/b.png", "/c.png", "/d.png"] {
+        c.insert(PathBuf::from(name), tiny(), part);
+    }
     assert!(c.bytes() <= CACHE_BYTES);
     assert!(!c.has(Path::new("/a.png")), "the least recently used goes first");
-    assert!(c.has(Path::new("/c.png")));
+    assert!(c.has(Path::new("/d.png")));
 }
 
 #[test]
@@ -44,7 +44,18 @@ fn cache_evicts_by_count() {
     }
     assert_eq!(c.len(), CACHE_ENTRIES);
     assert!(!c.has(Path::new("/0.png")));
-    assert!(c.get(Path::new("/64.png")).is_some());
+    let last = PathBuf::from(format!("/{CACHE_ENTRIES}.png"));
+    assert!(c.get(&last).is_some());
+}
+
+#[test]
+fn a_decoded_path_can_be_forgotten() {
+    let mut c = ImageCache::new();
+    let p = PathBuf::from("/x.png");
+    c.insert(p.clone(), tiny(), 4);
+    assert!(c.decoded(&p));
+    c.clear_decoded(&p);
+    assert!(!c.decoded(&p), "a window change makes the path queue again");
 }
 
 #[test]
@@ -64,6 +75,100 @@ fn decode_downscales_wide_images() {
     let (img, bytes) = decode(&wide, MAX_DECODE_WIDTH).expect("a valid PNG decodes");
     assert_eq!(img.size(), Some([1920, 6]));
     assert_eq!(bytes, 1920 * 6 * 4);
+}
+
+#[test]
+fn huge_dimensions_are_refused_before_decoding() {
+    assert!(too_big(100_000, 100_000));
+    assert!(too_big(8_192, 8_192), "256 MB of RGBA is over the 64 MB budget");
+    assert!(!too_big(4_096, 4_096), "64 MB is exactly at the budget");
+    assert!(!too_big(1_920, 1_080));
+}
+
+#[test]
+fn fit_leaves_images_that_already_fit_alone() {
+    let fitted = fit_with(image::RgbaImage::new(800, 600), MAX_DECODE_WIDTH, CACHE_BYTES);
+    assert_eq!(fitted.dimensions(), (800, 600));
+}
+
+#[test]
+fn fit_scales_a_tall_image_to_the_cache() {
+    // 100 x 100 is 40 KB; a 16 KB budget must shrink it rather than refusing it after decoding.
+    let fitted = fit_with(image::RgbaImage::new(100, 100), MAX_DECODE_WIDTH, 16_000);
+    let (w, h) = fitted.dimensions();
+    assert!(w < 100 && h < 100, "both sides shrink, keeping the aspect ratio");
+    assert!(u64::from(w) * u64::from(h) * 4 <= 16_000 + 4 * 100, "rounding slack only");
+}
+
+#[test]
+fn target_dims_fit_or_scale() {
+    assert_eq!(target_dims(800, 600, MAX_DECODE_WIDTH, CACHE_BYTES), (800, 600));
+    assert_eq!(target_dims(4000, 3000, MAX_DECODE_WIDTH, CACHE_BYTES), (1920, 1440));
+    let (w, h) = target_dims(100, 100_000, MAX_DECODE_WIDTH, 1_000_000);
+    assert!(u64::from(w) * u64::from(h) <= 250_000, "the pixel budget is respected");
+    assert!(h < 100_000);
+}
+
+#[test]
+fn jpeg_fast_path_uses_dct_scaling() {
+    let src = image::RgbImage::from_pixel(1600, 1200, image::Rgb([200, 30, 30]));
+    let mut jpg = Vec::new();
+    src.write_to(&mut std::io::Cursor::new(&mut jpg), image::ImageFormat::Jpeg).unwrap();
+    let img = decode_jpeg(std::io::Cursor::new(jpg.as_slice()), 800).expect("a JPEG decodes");
+    assert_eq!((img.width(), img.height()), (800, 600), "half-scale DCT, not a full decode");
+}
+
+#[test]
+fn decoder_uses_the_jpeg_fast_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("photo.jpg");
+    image::RgbImage::from_pixel(1600, 1200, image::Rgb([10, 120, 200])).save(&path).unwrap();
+    let (img, bytes) = decode(&path, 800).expect("a JPEG decodes");
+    assert_eq!(img.size(), Some([800, 600]));
+    assert_eq!(bytes, 800 * 600 * 4);
+}
+
+#[test]
+fn grayscale_jpeg_decodes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gray.jpg");
+    image::GrayImage::from_pixel(400, 300, image::Luma([128])).save(&path).unwrap();
+    let (img, _) = decode(&path, MAX_DECODE_WIDTH).expect("a grayscale JPEG decodes");
+    assert_eq!(img.size(), Some([400, 300]));
+}
+
+#[test]
+fn a_header_only_huge_png_is_refused() {
+    // A PNG signature + IHDR claiming 100000 x 100000, with no IDAT. The dimensions are read
+    // from the header, so the picture is refused before any pixel buffer exists.
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = b"IHDR".to_vec();
+    ihdr.extend_from_slice(&100_000u32.to_be_bytes());
+    ihdr.extend_from_slice(&100_000u32.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    png.extend_from_slice(&13u32.to_be_bytes());
+    png.extend_from_slice(&ihdr);
+    png.extend_from_slice(&crc32(&ihdr).to_be_bytes());
+    assert!(decode_bytes(&png, MAX_DECODE_WIDTH).is_none());
+}
+
+#[test]
+fn a_corrupt_jpeg_is_refused_by_both_paths() {
+    // SOI + a truncated APP0 header: the fast path cannot read the info, and `image` cannot
+    // construct a decoder, so the picture is refused rather than half-drawn.
+    let jpg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0];
+    assert!(decode_bytes(&jpg, MAX_DECODE_WIDTH).is_none());
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut c = 0xFFFF_FFFFu32;
+    for &b in data {
+        c ^= u32::from(b);
+        for _ in 0..8 {
+            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+        }
+    }
+    !c
 }
 
 #[test]
@@ -263,6 +368,11 @@ mod flow {
         let end = buf.text.text.len();
         buf.text.set_caret(end);
         buf.text.insert("\n![n](new.png)\n![w](https://h.example/w.png)\n");
+        // The input callback bumps the revision on every edit; do the same here, then let the
+        // preview settle so the image scan sees it.
+        let tab = s.tabs.active_mut().unwrap();
+        tab.rev += 1;
+        tab.preview_rev = tab.rev;
         s.sync_edit_images();
         assert!(s.jobs.contains(&Job::Image { key: pic.clone() }));
         assert_eq!(web_jobs(&s), 0, "Ask still holds in the editor");
@@ -309,4 +419,34 @@ mod flow {
         rt.frame(1.0 / 60.0);
         assert!(rt.state.lightbox.is_none());
     }
+}
+
+#[test]
+fn svg_external_hrefs_are_refused() {
+    assert!(!svg_is_self_contained(br#"<svg xmlns="http://www.w3.org/2000/svg"><image href="/dev/zero"/></svg>"#));
+    assert!(!svg_is_self_contained(
+        br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="pic.png"/></svg>"#
+    ));
+    assert!(!svg_is_self_contained(
+        br#"<svg xmlns="http://www.w3.org/2000/svg"><filter><feImage href="/etc/passwd"/></filter></svg>"#
+    ));
+    assert!(!svg_is_self_contained(b"not xml at all"));
+}
+
+#[test]
+fn svg_data_hrefs_and_plain_shapes_are_allowed() {
+    assert!(svg_is_self_contained(
+        br#"<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AA=="/></svg>"#
+    ));
+    assert!(svg_is_self_contained(br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>"#));
+}
+
+#[test]
+fn gzip_is_bounded() {
+    use std::io::Write as _;
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(&vec![b'a'; 4096]).unwrap();
+    let gz = enc.finish().unwrap();
+    assert_eq!(bounded_gunzip(&gz, 8192).unwrap().len(), 4096);
+    assert!(bounded_gunzip(&gz, 1024).is_none(), "a cap smaller than the payload refuses it");
 }

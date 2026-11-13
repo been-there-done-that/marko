@@ -32,13 +32,25 @@ fn buffer(tab: &mut Tab) -> &mut EditBuffer {
 /// Edits from the source text area land in the active tab's buffer. The area is only in the
 /// tree while the active tab is Ready, so there is always a tab to write to.
 fn edit_text(s: &mut AppState) -> &mut TextEdit {
+    let now = s.now;
     let tab = s.tabs.active_mut().expect("the editor is only shown for an active tab");
-    &mut buffer(tab).text
+    tab.rev = tab.rev.wrapping_add(1);
+    tab.last_edit = now;
+    let buf = buffer(tab);
+    buf.mark_edited();
+    &mut buf.text
 }
 
-/// True when the active tab's buffer differs from what was last saved or opened.
+/// True when the active tab's buffer differs from what was last saved or opened. Hashes the
+/// buffer, so per-frame code should use `dirty_hint` instead.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn dirty(tab: &Tab) -> bool {
     tab.edit.as_ref().is_some_and(EditBuffer::dirty)
+}
+
+/// The O(1) dirty hint for the tab strip, which asks about every tab every frame.
+pub fn dirty_hint(tab: &Tab) -> bool {
+    tab.edit.as_ref().is_some_and(EditBuffer::dirty_hint)
 }
 
 /// Whether the Edit view is shown this frame: Edit mode, with a Ready tab active.
@@ -55,6 +67,7 @@ pub fn enter(s: &mut AppState) -> bool {
     }
     // Focus the source so the first key typed lands in it (the notes on `TextEdit::focused`).
     buffer(tab).text.focused = true;
+    tab.preview_rev = tab.rev;
     s.mode = Mode::Edit;
     true
 }
@@ -135,7 +148,13 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
             at.set([p.offset[1], p.max[1]]);
         })
         .child(source_area);
-    let md = document::markdown(s, k, look, &edit.text, &tab.path, Vec::new());
+    let key = format!("edit-{}", tab.id);
+    let md = document::markdown(
+        s,
+        k,
+        look,
+        document::MarkdownDoc { key: &key, rev: tab.preview_rev, src: &edit.text, path: &tab.path, highlights: Vec::new() },
+    );
     let preview_at = s.preview_at.clone();
     let preview = document::reading("preview", s, md).on_scroll_offset(move |p: ScrollPos| {
         preview_at.set([p.offset[1], p.max[1]]);

@@ -104,7 +104,10 @@ fn loose_row(s: &AppState, k: &Kit, id: u64, style: &TreeStyle) -> El {
     let key = format!("side-loose-{id}");
     let active = s.tabs.active().is_some_and(|a| a.id == id);
     let r = TreeRow::new(&key, 0).selected(active);
-    TreeItem::new(name).icon(&icons::FILE_TEXT).build(k, &r, style).key(key).on_press(move |s: &mut AppState| s.tabs.activate(id))
+    TreeItem::new(name).icon(&icons::FILE_TEXT).build(k, &r, style).key(key).on_press(move |s: &mut AppState| {
+        s.tabs.activate(id);
+        s.sync_find();
+    })
 }
 
 /// One visible row of a root's tree. A folder opens or closes; a file opens as a tab.
@@ -124,6 +127,7 @@ fn node_row(s: &AppState, k: &Kit, style: &TreeStyle, i: usize, j: usize) -> El 
         if let Some(path) = &file {
             let now = s.now;
             s.open_paths(std::slice::from_ref(path), now);
+            s.sync_find();
         }
     })
 }

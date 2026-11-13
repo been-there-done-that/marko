@@ -41,3 +41,29 @@ fn missing_dir_is_empty() {
     let (themes, errors) = load_dir(Path::new("/nonexistent/marko-themes"));
     assert!(themes.is_empty() && errors.is_empty());
 }
+
+#[test]
+fn valid_hex_rejects_multibyte_without_panicking() {
+    assert!(valid_hex("#fff"));
+    assert!(valid_hex("#ffffff"));
+    assert!(valid_hex("#ffffffaa"));
+    assert!(!valid_hex("#éa"), "a 3-byte non-ASCII value is refused, not sliced");
+    assert!(!valid_hex("ffffff"));
+    assert!(!valid_hex("#ggg"));
+}
+
+#[test]
+fn a_multibyte_theme_colour_is_invalid_not_a_panic() {
+    let mut def = builtin().remove(0);
+    def.bg = "#éa".into();
+    assert!(!valid(&def));
+}
+
+#[test]
+fn oversized_theme_file_is_skipped() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("big.json"), "x".repeat(MAX_THEME_BYTES as usize + 1)).unwrap();
+    let (themes, errors) = load_dir(dir.path());
+    assert!(themes.is_empty());
+    assert_eq!(errors, vec!["big.json".to_string()]);
+}

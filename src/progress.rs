@@ -45,7 +45,7 @@ impl Progress {
 }
 
 /// How far down the document `offset` is, from 0 to 1, given the largest offset `max`.
-fn fraction(offset: f32, max: f32) -> f32 {
+pub(crate) fn fraction(offset: f32, max: f32) -> f32 {
     if max > 0.0 { (offset / max).clamp(0.0, 1.0) } else { 0.0 }
 }
 

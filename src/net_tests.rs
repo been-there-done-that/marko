@@ -74,3 +74,37 @@ fn fetch_reports_an_http_error() {
 fn fetch_rejects_other_schemes_without_connecting() {
     assert!(fetch("file:///etc/passwd").is_err());
 }
+
+#[test]
+fn local_and_private_hosts_are_refused() {
+    for u in [
+        "http://127.0.0.1/x",
+        "http://127.1.2.3/x",
+        "http://localhost/x",
+        "http://app.localhost/x",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.1/x",
+        "http://172.16.5.4/x",
+        "http://192.168.1.1/x",
+        "http://100.64.0.1/x",
+        "http://[::1]/x",
+        "http://[fe80::1]/x",
+        "http://[fc00::1]/x",
+        "http://metadata.google.internal/x",
+        "http://0.0.0.0/x",
+    ] {
+        assert!(check_url(u).is_err(), "{u} must be refused");
+    }
+    assert!(check_url("https://example.com/x.png").is_ok());
+    assert!(check_url("https://cdn.example.org/a/b.png").is_ok());
+}
+
+#[test]
+fn a_redirect_to_a_private_host_is_refused() {
+    let (url, server) = serve(
+        b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/x\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+    );
+    let err = fetch_with_policy(&url, MAX_BYTES, TIMEOUT, true).unwrap_err();
+    assert!(err.contains("local or private"), "{err}");
+    let _ = server.join();
+}

@@ -80,7 +80,7 @@ fn readme_or_first_prefers_readme_any_case() {
 #[test]
 fn build_tree_nests_folders_dirs_first() {
     let files = vec![PathBuf::from("a.md"), PathBuf::from("sub/x.md"), PathBuf::from("sub/deep/y.md")];
-    let tree = build_tree("root", &files, Path::new("/base"));
+    let tree = build_tree(&files, Path::new("/base"));
     let top: Vec<&str> = tree.children(None).collect();
     assert_eq!(top.len(), 2, "{top:?}");
     assert!(tree.get(top[0]).is_some_and(|n| n.dir), "folder first: {top:?}");

@@ -61,6 +61,10 @@ fn typing_updates_preview() {
         edit.text.focus = 0;
     }
     rt.key(KeyEvent { key: Key::Text("# Zebraword\n\n".into()), mods: Mods::default() });
+    // The app's poll settles the debounced preview; this test drives the view directly.
+    if let Some(tab) = rt.state.tabs.active_mut() {
+        tab.preview_rev = tab.rev;
+    }
     for _ in 0..3 {
         rt.frame(1.0 / 60.0);
     }

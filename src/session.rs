@@ -116,7 +116,7 @@ pub fn frame_of(p: &rune::WindowPlacement) -> Option<(i32, i32, u32, u32)> {
 pub fn usable_frame(frame: (i32, i32, u32, u32)) -> Option<((i32, i32), (u32, u32))> {
     let (x, y, w, h) = frame;
     let sized = (MIN_FRAME.0..=MAX_SIDE).contains(&w) && (MIN_FRAME.1..=MAX_SIDE).contains(&h);
-    let placed = x.abs() <= MAX_OFFSET && y.abs() <= MAX_OFFSET;
+    let placed = x.unsigned_abs() <= MAX_OFFSET.unsigned_abs() && y.unsigned_abs() <= MAX_OFFSET.unsigned_abs();
     (sized && placed).then_some(((x, y), (w, h)))
 }
 
@@ -138,7 +138,11 @@ pub fn restore(s: &mut AppState, session: Session, now: f64) {
     let recent: Vec<PathBuf> = session.recent.iter().filter(|p| p.exists()).cloned().collect();
 
     s.sidebar.visible = session.sidebar_visible;
-    s.zoom = if session.zoom > 0.0 { session.zoom } else { 1.0 };
+    s.zoom = if session.zoom.is_finite() && session.zoom > 0.0 {
+        session.zoom.clamp(crate::app::ZOOM_MIN, crate::app::ZOOM_MAX)
+    } else {
+        1.0
+    };
     s.wide = session.wide;
     if s.settings.startup == Startup::Empty {
         s.recent = recent;

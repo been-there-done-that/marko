@@ -20,6 +20,8 @@ use crate::settings::Settings;
 pub const FILE: &str = "settings.json";
 /// How long a burst of changes (a slider drag) settles before it is written.
 const WRITE_QUIET: Duration = Duration::from_millis(250);
+/// Largest settings file read (1 MB); a real one is a few KB.
+const MAX_SETTINGS_BYTES: u64 = 1024 * 1024;
 
 /// The settings this window last wrote or took from the file. A change in state that differs
 /// from it is this window's own and gets written; a file that matches it is an echo.
@@ -37,7 +39,11 @@ fn synced() -> std::sync::MutexGuard<'static, Option<Settings>> {
 
 /// The settings saved in `dir`, or None when there is no readable file.
 pub fn read(dir: &Path) -> Option<Settings> {
-    let text = std::fs::read_to_string(dir.join(FILE)).ok()?;
+    let path = dir.join(FILE);
+    if std::fs::metadata(&path).map(|m| m.len() > MAX_SETTINGS_BYTES).unwrap_or(false) {
+        return None;
+    }
+    let text = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str::<Settings>(&text).ok().map(Settings::clamped)
 }
 

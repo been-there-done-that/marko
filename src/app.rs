@@ -3,8 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use rune::{Live, PointerPress, Tx};
+use rune_kit::{FileNode, TreeModel};
 
 use crate::edit::{self, EditBuffer};
 use crate::find::Find;
@@ -12,18 +14,28 @@ use crate::images::ImageCache;
 use crate::load::{DocState, LoadError, LARGE_BYTES};
 use crate::paths::canonical;
 use crate::progress::Progress;
-use crate::sidebar::{build_tree, readme_or_first, Sidebar};
+use crate::sidebar::Sidebar;
 use crate::tabs::TabSet;
 use crate::watch::{content_hash, FileEvent};
 
 /// Most recently opened files kept for the Open menu.
 const RECENT_CAP: usize = 16;
+/// Most web pictures queued at once, so a document naming thousands of images cannot fill the
+/// job queue.
+const MAX_PENDING_IMAGES: usize = 256;
+/// Distinct image decodes in flight at once (queued, decoding, or decoded but not yet applied).
+/// This bounds how many decoded pictures can sit in the result channel.
+const MAX_IN_FLIGHT_IMAGES: usize = 4;
+/// Images decoded on each side of the reader's scroll position. A short document is decoded whole.
+const LAZY_IMAGE_WINDOW: usize = 2;
+/// How long typing must pause before the editor preview re-renders the document.
+const PREVIEW_QUIET: f64 = 0.12;
 /// How long a toast stays on screen, in seconds.
 const TOAST_SECS: f64 = 2.4;
 /// Zoom step and limits. Zoom multiplies the reading sizes (§4.7).
 const ZOOM_STEP: f32 = 0.1;
-const ZOOM_MIN: f32 = 0.6;
-const ZOOM_MAX: f32 = 2.0;
+pub(crate) const ZOOM_MIN: f32 = 0.6;
+pub(crate) const ZOOM_MAX: f32 = 2.0;
 
 /// How a document is shown: the rendered preview, or the editor beside a live preview.
 pub enum Mode {
@@ -237,8 +249,16 @@ impl AppState {
     }
 
     /// Queues a write of tab `id`'s text to `path`. With `then_close`, the tab closes once the
-    /// write lands. A tab that is not loaded has nothing to write.
-    pub fn queue_save(&mut self, id: u64, path: PathBuf, then_close: bool) {
+    /// write lands. `save_as` allows a lossily-loaded document to be written to a new path.
+    pub fn queue_save(&mut self, id: u64, path: PathBuf, then_close: bool, save_as: bool) {
+        let now = self.now;
+        let lossy = self.tabs.iter().find(|t| t.id == id).is_some_and(|t| matches!(t.doc, DocState::Ready { lossy: true, .. }));
+        if lossy && !save_as {
+            // Loading replaced unreadable bytes with U+FFFD. Writing that back over the same file
+            // would corrupt it, so refuse; Save As writes the readable text elsewhere.
+            self.show_toast("This file has characters that couldn't be read. Use Save As to keep the original", now);
+            return;
+        }
         let Some(tab) = self.tabs.iter().find(|t| t.id == id) else { return };
         let text = match (&tab.edit, &tab.doc) {
             (Some(buf), _) => buf.text(),
@@ -260,6 +280,7 @@ impl AppState {
         self.close_after_save.retain(|&id| id != tab);
         let Some(t) = self.tabs.get_mut(tab) else { return };
         let name = file_name(&t.path);
+        let succeeded = result.is_ok();
         let toast = match result {
             Ok(()) => {
                 t.hash = Some(content_hash(&text));
@@ -270,12 +291,15 @@ impl AppState {
                 }
                 let large = text.len() as u64 > LARGE_BYTES;
                 t.doc = DocState::Ready { src: Arc::from(text.as_str()), large, lossy: false };
+                t.rev = t.rev.wrapping_add(1);
+                t.preview_rev = t.rev;
                 format!("Saved {name}")
             }
             Err(e) => format!("Couldn't save {name}: {e}"),
         };
         self.show_toast(toast, now);
-        if close && self.tabs.iter().any(|t| t.id == tab) {
+        // Only a successful write closes the tab: a failed save must keep the edits.
+        if close && succeeded && self.tabs.iter().any(|t| t.id == tab) {
             self.close_now(tab);
         }
         self.sync_find();
@@ -307,6 +331,8 @@ impl AppState {
             t.doc = doc;
             t.hash = None;
             t.deleted = false;
+            t.rev = t.rev.wrapping_add(1);
+            t.preview_rev = t.rev;
             return;
         };
         let same = was_ready && t.hash == Some(hash);
@@ -327,6 +353,8 @@ impl AppState {
         t.doc = doc;
         t.hash = Some(hash);
         t.deleted = false;
+        t.rev = t.rev.wrapping_add(1);
+        t.preview_rev = t.rev;
         if was_ready && !same {
             let name = file_name(&t.path);
             if active {
@@ -343,7 +371,7 @@ impl AppState {
         match ev {
             FileEvent::Changed(path) => {
                 if self.is_root(&path) {
-                    self.jobs.push(Job::Scan { root: path });
+                    self.queue_scan(path);
                     return;
                 }
                 self.refresh_image(&path);
@@ -353,7 +381,7 @@ impl AppState {
             }
             FileEvent::Removed(path) => {
                 if self.is_root(&path) {
-                    self.jobs.push(Job::Scan { root: path });
+                    self.queue_scan(path);
                     return;
                 }
                 for id in self.tab_ids_for(&path) {
@@ -363,21 +391,120 @@ impl AppState {
         }
     }
 
+    /// Queues a root scan unless one is already waiting.
+    fn queue_scan(&mut self, root: PathBuf) {
+        let job = Job::Scan { root };
+        if !self.jobs.contains(&job) {
+            self.jobs.push(job);
+        }
+    }
+
+    /// Lets the editor preview catch up with a burst of typing once it has been quiet long
+    /// enough, so a fast typist does not re-parse the document on every keystroke.
+    pub fn catch_up_preview(&mut self, now: f64, tx: &mut Tx) -> bool {
+        let Some(tab) = self.tabs.active_mut() else { return false };
+        if tab.preview_rev == tab.rev {
+            return false;
+        }
+        let wait = PREVIEW_QUIET - (now - tab.last_edit);
+        if wait > 0.0 {
+            tx.wake_after(Duration::from_secs_f64(wait));
+            return false;
+        }
+        tab.preview_rev = tab.rev;
+        true
+    }
+
     /// Queues a decode for each local image not yet cached or pending. Paths are already resolved
     /// on the worker.
     pub fn want_images(&mut self, paths: Vec<PathBuf>) {
         for p in paths {
-            if !self.images.has(&p) && !self.images.pending(&p) {
+            if self.images.pending_len() >= MAX_IN_FLIGHT_IMAGES {
+                break;
+            }
+            if !self.images.has(&p) && !self.images.pending(&p) && !self.images.failed(&p) && !self.images.decoded(&p) {
                 self.images.mark_pending(p.clone());
                 self.jobs.push(Job::Image { key: p });
             }
         }
     }
 
+    /// The local images a loaded document names, in document order. Only the active tab's window
+    /// is queued now; the rest wait until it is scrolled to.
+    pub fn load_images(&mut self, tab: u64, images: Vec<PathBuf>) {
+        if let Some(t) = self.tabs.get_mut(tab) {
+            t.images = images;
+            t.image_window.clear();
+        }
+        self.want_visible_images(tab);
+    }
+
+    /// Queues the images around the active document's scroll position. Called each frame so the
+    /// queue refills as the reader scrolls and as earlier decodes finish.
+    pub fn want_visible_images(&mut self, tab: u64) {
+        if self.tabs.active().map(|t| t.id) != Some(tab) {
+            return;
+        }
+        let paths = {
+            let Some(t) = self.tabs.get_mut(tab) else { return };
+            let [offset, max, _, _] = t.scroll_at.get();
+            let win = window(&t.images, crate::progress::fraction(offset, max));
+            if win != t.image_window {
+                for p in &win {
+                    if !t.image_window.contains(p) {
+                        self.images.clear_decoded(p);
+                    }
+                }
+                t.image_window = win.clone();
+            }
+            win
+        };
+        self.want_images(paths);
+    }
+
+    /// Queues the editor preview's images around its scroll position.
+    pub fn want_visible_edit_images(&mut self) {
+        let paths = {
+            let Some(t) = self.tabs.active_mut() else { return };
+            let [offset, max] = self.preview_at.get();
+            let win = window(&t.edit_images, crate::progress::fraction(offset, max));
+            if win != t.edit_window {
+                for p in &win {
+                    if !t.edit_window.contains(p) {
+                        self.images.clear_decoded(p);
+                    }
+                }
+                t.edit_window = win.clone();
+            }
+            win
+        };
+        self.want_images(paths);
+    }
+
+    /// Runs once per frame: the image window the current mode shows.
+    pub fn sync_visible_images(&mut self) {
+        if matches!(self.mode, Mode::Edit) {
+            self.want_visible_edit_images();
+        } else if let Some(id) = self.tabs.active().map(|t| t.id) {
+            self.want_visible_images(id);
+        }
+        if let Some(id) = self.tabs.active().map(|t| t.id) {
+            self.want_web_images(id);
+        }
+    }
+
     /// A cached local image changed on disk: decodes the file again. The old picture stays on
     /// screen until the new one lands, and stays if the new one fails to decode.
     fn refresh_image(&mut self, path: &Path) {
-        if self.images.has(path) && !self.images.pending(path) {
+        // A cached picture is re-decoded; one whose decode failed before the file existed is
+        // retried now that it changed. A picture already queued is left alone.
+        let cached = self.images.has(path);
+        let pending = self.images.pending(path);
+        let failed = self.images.failed(path);
+        if (cached && !pending) || failed {
+            self.images.clear_pending(path);
+            self.images.clear_failed(path);
+            self.images.clear_decoded(path);
             self.images.mark_pending(path.to_path_buf());
             self.jobs.push(Job::Image { key: path.to_path_buf() });
         }
@@ -395,8 +522,11 @@ impl AppState {
             return;
         }
         for url in urls {
+            if self.images.pending_len() >= MAX_PENDING_IMAGES {
+                break;
+            }
             let key = crate::images::web_key(url);
-            if !self.images.has(&key) && !self.images.pending(&key) {
+            if !self.images.has(&key) && !self.images.pending(&key) && !self.images.failed(&key) && !self.images.decoded(&key) {
                 self.images.mark_pending(key);
                 self.jobs.push(Job::WebImage { url: url.clone() });
             }
@@ -409,15 +539,44 @@ impl AppState {
             self.web_urls.remove(&tab);
             return;
         }
-        self.want_web(tab, &urls);
         self.web_urls.insert(tab, urls);
+        self.want_web_images(tab);
     }
 
-    /// The Load button: allows `tab`'s web images and fetches them.
+    /// The Load button: allows `tab`'s web images and fetches the visible window.
     pub fn load_web_images(&mut self, tab: u64) {
         self.web_allowed.insert(tab);
-        let urls = self.web_urls.get(&tab).cloned().unwrap_or_default();
-        self.want_web(tab, &urls);
+        self.want_web_images(tab);
+    }
+
+    /// Queues the web images around the active tab's scroll position. Like local images, only a
+    /// window is fetched; scrolling to the rest queues them.
+    pub fn want_web_images(&mut self, tab: u64) {
+        if self.tabs.active().map(|t| t.id) != Some(tab) {
+            return;
+        }
+        let win = {
+            let Some(t) = self.tabs.get_mut(tab) else { return };
+            let Some(urls) = self.web_urls.get(&tab) else { return };
+            let frac = if matches!(self.mode, Mode::Edit) {
+                let [offset, max] = self.preview_at.get();
+                crate::progress::fraction(offset, max)
+            } else {
+                let [offset, max, _, _] = t.scroll_at.get();
+                crate::progress::fraction(offset, max)
+            };
+            let win = window(urls, frac);
+            if win != t.web_window {
+                for url in &win {
+                    if !t.web_window.contains(url) {
+                        self.images.clear_decoded(&crate::images::web_key(url));
+                    }
+                }
+                t.web_window = win.clone();
+            }
+            win
+        };
+        self.want_web(tab, &win);
     }
 
     /// How many web images `tab` shows only as alt text because loading them is not allowed yet.
@@ -433,7 +592,7 @@ impl AppState {
         }
         let Some(tab) = self.tabs.active() else { return };
         let Some(buf) = tab.edit.as_ref() else { return };
-        let seen = (tab.id, content_hash(&buf.text.text));
+        let seen = (tab.id, tab.preview_rev);
         if self.edit_images_seen == Some(seen) {
             return;
         }
@@ -443,17 +602,22 @@ impl AppState {
         let (local, mut web) = crate::images::split_srcs(&path, &srcs);
         web.sort();
         web.dedup();
-        self.want_images(local);
+        if let Some(t) = self.tabs.get_mut(id) {
+            t.edit_images = local;
+            t.edit_window.clear();
+        }
+        self.want_visible_edit_images();
         self.doc_web_images(id, web);
     }
 
-    /// A worker finished decoding an image. A failed decode stays pending, so it is not retried.
+    /// A worker finished decoding an image. A failure frees the slot and is remembered, so a
+    /// broken picture is not retried until its file changes.
     pub fn image_ready(&mut self, key: PathBuf, image: Option<(rune::Image, usize)>) {
         match image {
             Some((img, bytes)) => self.images.insert(key, img, bytes),
             // A refresh that failed (a file caught mid-write) keeps the old picture and may be tried again.
             None if self.images.has(&key) => self.images.clear_pending(&key),
-            None => {}
+            None => self.images.mark_failed(key),
         }
     }
 
@@ -513,28 +677,28 @@ impl AppState {
 
     /// A worker finished scanning a root. Builds its tree; opens the README (or the first
     /// file) when no tab is open yet. An error is shown in the sidebar.
-    pub fn scanned(&mut self, root: &Path, files: Result<Vec<PathBuf>, String>) {
+    pub fn scanned(&mut self, root: &Path, tree: Result<TreeModel<FileNode<PathBuf>>, String>, open: Option<PathBuf>) {
         let key = canonical(root);
         let Some(i) = self.sidebar.roots.iter().position(|r| r.path == key) else {
             return;
         };
-        match files {
-            Ok(files) => {
+        let open = match tree {
+            Ok(tree) => {
                 let r = &mut self.sidebar.roots[i];
                 r.scanning = false;
                 r.error = None;
-                r.tree = build_tree(&format!("root-{i}"), &files, &key);
-                if self.tabs.is_empty()
-                    && let Some(rel) = readme_or_first(&files)
-                {
-                    self.open_file(&key.join(rel));
-                }
+                r.tree = tree;
+                open
             }
             Err(e) => {
                 let r = &mut self.sidebar.roots[i];
                 r.scanning = false;
                 r.error = Some(e);
+                None
             }
+        };
+        if self.tabs.is_empty() && let Some(rel) = open {
+            self.open_file(&key.join(rel));
         }
     }
 
@@ -542,6 +706,12 @@ impl AppState {
     /// Reload from Disk both use it.
     pub fn requeue_active_load(&mut self) {
         let Some(tab) = self.tabs.active_mut() else { return };
+        if tab.edit.as_ref().is_some_and(EditBuffer::dirty) {
+            // Reloading would rebase the saved hash under the edits, so the next save would
+            // overwrite the file's new content without asking. Raise the conflict banner instead.
+            tab.conflict = true;
+            return;
+        }
         tab.doc = DocState::Loading;
         let job = Job::Load { tab: tab.id, path: tab.path.clone() };
         if !self.jobs.contains(&job) {
@@ -580,7 +750,7 @@ impl AppState {
         self.zoom = 1.0;
     }
 
-    fn set_zoom(&mut self, zoom: f32) {
+    pub(crate) fn set_zoom(&mut self, zoom: f32) {
         self.zoom = (zoom.clamp(ZOOM_MIN, ZOOM_MAX) * 10.0).round() / 10.0;
     }
 
@@ -593,3 +763,25 @@ impl AppState {
     }
 }
 
+/// The items to queue around `frac` (0 at the top, 1 at the bottom). A short list is taken
+/// whole. A long one gets one window around the reader plus the first window, so scrolling back
+/// to the top is instant; the cache evicts the rest as it fills.
+fn window<T: Clone>(items: &[T], frac: f32) -> Vec<T> {
+    let n = items.len();
+    if n <= LAZY_IMAGE_WINDOW * 2 {
+        return items.to_vec();
+    }
+    let center = ((frac * n as f32) as usize).min(n - 1);
+    let lo = center.saturating_sub(LAZY_IMAGE_WINDOW);
+    let hi = (center + LAZY_IMAGE_WINDOW).min(n);
+    let mut out = items[lo..hi].to_vec();
+    if lo >= LAZY_IMAGE_WINDOW {
+        out.extend_from_slice(&items[..LAZY_IMAGE_WINDOW]);
+    }
+    out
+}
+
+
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod tests;
