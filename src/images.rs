@@ -98,6 +98,10 @@ fn percent_decode(s: &str) -> String {
 /// The `src` of every image in `src_md` (Markdown source), in document order. Images inside
 /// code blocks are not images, so they are left out.
 pub fn image_srcs(src_md: &str) -> Vec<String> {
+    // Every Markdown image starts with `![`; without one, skip the full parse.
+    if !src_md.contains("![") {
+        return Vec::new();
+    }
     Parser::new(src_md)
         .filter_map(|event| match event {
             Event::Start(Tag::Image { dest_url, .. }) => Some(dest_url.to_string()),

@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use notify::{Event, RecursiveMode, Watcher as _};
+use notify::{Event, EventKind, RecursiveMode, Watcher as _};
 use rune::{AppHandle, Tx};
 
 use crate::app::AppState;
@@ -126,7 +126,11 @@ pub fn spawn(dir: PathBuf, handle: AppHandle<AppState>) {
     let _ = std::thread::Builder::new().name("settings-watch".into()).spawn(move || {
         let (events, incoming) = mpsc::channel::<Event>();
         let Ok(mut watcher) = notify::recommended_watcher(move |res: notify::Result<Event>| {
-            if let Ok(ev) = res {
+            // Opens and reads are not changes. Our own read of settings.json raises them, so
+            // passing them on would read the file again, forever, and keep the app awake.
+            if let Ok(ev) = res
+                && !matches!(ev.kind, EventKind::Access(_))
+            {
                 let _ = events.send(ev);
             }
         }) else { return };
