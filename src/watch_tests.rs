@@ -67,16 +67,21 @@ fn rename_over_is_change() {
     let dir = tempfile::tempdir().unwrap();
     let file = write(&canonical(dir.path()), "a.md", "# one");
     let (tx, rx) = std::sync::mpsc::channel();
-    let mut w = Watcher::start(move |ev| {
+    // Polling instead of inotify: the test host's watch budget can be spent by other programs,
+    // and this test is about the event mapping, not the backend.
+    let mut w = Watcher::start_polling(move |ev| {
         let _ = tx.send(ev);
     })
     .unwrap();
     w.sync(std::slice::from_ref(&file), &[]);
     wait_applied(&w, 1);
+    // PollWatcher needs a sweep to record the file before the change is visible to it.
+    std::thread::sleep(Duration::from_secs(1));
 
     // An editor's atomic save: write a temp file, then rename it over the original.
     let tmp = file.with_file_name("a.md.tmp");
-    std::fs::write(&tmp, "# two").unwrap();
+    // A different length, so a polling backend notices even where timestamps are coarse.
+    std::fs::write(&tmp, "# two, and more text").unwrap();
     std::fs::rename(&tmp, &file).unwrap();
 
     let first = rx.recv_timeout(Duration::from_secs(2)).expect("a change within 2 s");

@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use notify::event::ModifyKind;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
+use notify::{Event, EventKind, RecursiveMode, Watcher as NotifyWatcher};
 
 /// A path is quiet this long before its event is delivered.
 const QUIET_SECS: f64 = 0.15;
@@ -56,6 +56,32 @@ impl Watcher {
             }
         })
         .map_err(|e| e.to_string())?;
+        Self::from_inner(Box::new(inner), raw_rx, on_event)
+    }
+
+    /// The same watcher on notify's polling backend. Used by the tests when the process's
+    /// inotify watch budget is already spent by other programs.
+    #[cfg(test)]
+    pub fn start_polling(on_event: impl Fn(FileEvent) + Send + 'static) -> Result<Watcher, String> {
+        let (raw_tx, raw_rx) = mpsc::channel::<Event>();
+        let config = notify::Config::default().with_poll_interval(Duration::from_millis(100));
+        let inner = notify::PollWatcher::new(
+            move |res: notify::Result<Event>| {
+                if let Ok(ev) = res {
+                    let _ = raw_tx.send(ev);
+                }
+            },
+            config,
+        )
+        .map_err(|e| e.to_string())?;
+        Self::from_inner(Box::new(inner), raw_rx, on_event)
+    }
+
+    fn from_inner(
+        inner: Box<dyn NotifyWatcher + Send>,
+        raw_rx: Receiver<Event>,
+        on_event: impl Fn(FileEvent) + Send + 'static,
+    ) -> Result<Watcher, String> {
         let interest = Arc::new(Mutex::new(Interest::default()));
         let shared = Arc::clone(&interest);
         thread::Builder::new()
@@ -107,7 +133,7 @@ impl Watcher {
 /// The notify watcher and the folders it watches. Lives on the watcher's own thread, since adding
 /// a recursive watch walks the directory tree.
 struct Folders {
-    inner: RecommendedWatcher,
+    inner: Box<dyn NotifyWatcher + Send>,
     /// Folders now watched, with the mode each is watched in.
     watched: HashMap<PathBuf, RecursiveMode>,
 }
@@ -123,8 +149,13 @@ impl Folders {
             self.watched.remove(&dir);
         }
         for (dir, mode) in want {
-            if !self.watched.contains_key(&dir) && self.inner.watch(&dir, mode).is_ok() {
-                self.watched.insert(dir, mode);
+            if !self.watched.contains_key(&dir) {
+                match self.inner.watch(&dir, mode) {
+                    Ok(()) => {
+                        self.watched.insert(dir, mode);
+                    }
+                    Err(e) => eprintln!("marko: couldn't watch {}: {e}", dir.display()),
+                }
             }
         }
     }
