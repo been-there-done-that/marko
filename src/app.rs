@@ -188,7 +188,8 @@ impl AppState {
             editor_at: Live::new([0.0; 2]),
             preview_at: Live::new([0.0; 2]),
             scroll_synced: None,
-            stats_on: true,
+            // Off by default: while on, the readout wakes the app every second even when idle.
+            stats_on: false,
             stats: crate::stats::Stats::default(),
             stats_text: rune::LiveText::new(""),
             stats_last: None,
@@ -224,6 +225,7 @@ impl AppState {
         for (i, (id, dirty)) in ids.iter().enumerate() {
             if pick(i, at) && !dirty {
                 self.tabs.close(*id);
+                self.forget_tab(*id);
             }
         }
         self.tabs.activate(anchor);
@@ -236,7 +238,15 @@ impl AppState {
             self.guard = None;
         }
         self.tabs.close(id);
+        self.forget_tab(id);
         self.sync_find();
+    }
+
+    /// Drops the per-tab web image state of a closed tab, so the maps don't grow with every tab
+    /// ever opened.
+    fn forget_tab(&mut self, id: u64) {
+        self.web_allowed.remove(&id);
+        self.web_urls.remove(&id);
     }
 
     /// Opens an untitled tab named after the first free `Untitled.md`. The caller switches

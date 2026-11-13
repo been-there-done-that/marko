@@ -202,3 +202,22 @@ fn a_decoded_image_is_not_queued_again() {
     s.want_images(vec![path]);
     assert!(s.jobs.is_empty(), "a stable window does not decode a picture again");
 }
+
+#[test]
+fn closing_a_tab_forgets_its_web_images() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = AppState::new();
+    let a = ready_tab(&mut s, &dir.path().join("a.md"), "a");
+    let b = ready_tab(&mut s, &dir.path().join("b.md"), "b");
+    let c = ready_tab(&mut s, &dir.path().join("c.md"), "c");
+    for id in [a, b, c] {
+        s.web_allowed.insert(id);
+        s.web_urls.insert(id, vec!["https://example.com/x.png".into()]);
+    }
+    s.close_now(a);
+    assert!(!s.web_allowed.contains(&a) && !s.web_urls.contains_key(&a));
+    // Close the tabs to the right of `b`: `c` goes, `b` keeps its entries.
+    s.close_clean(|i, at| i > at, b);
+    assert!(!s.web_allowed.contains(&c) && !s.web_urls.contains_key(&c));
+    assert!(s.web_allowed.contains(&b) && s.web_urls.contains_key(&b));
+}

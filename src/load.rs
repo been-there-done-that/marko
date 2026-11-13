@@ -35,9 +35,13 @@ pub fn load(path: &Path) -> DocState {
     if bytes[..bytes.len().min(BINARY_PROBE)].contains(&0) {
         return DocState::Error(LoadError::Binary);
     }
-    let lossy = std::str::from_utf8(&bytes).is_err();
-    let text = String::from_utf8_lossy(&bytes);
-    DocState::Ready { src: Arc::from(text.as_ref()), large: len > LARGE_BYTES, lossy }
+    // Take ownership of the bytes so a valid file is never held twice; only invalid UTF-8 pays
+    // for the lossy copy, and the original bytes are dropped before the Arc copy is made.
+    let (text, lossy) = match String::from_utf8(bytes) {
+        Ok(s) => (s, false),
+        Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), true),
+    };
+    DocState::Ready { src: Arc::<str>::from(text), large: len > LARGE_BYTES, lossy }
 }
 
 fn map_io(e: std::io::Error) -> LoadError {
