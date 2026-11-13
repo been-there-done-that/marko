@@ -123,7 +123,7 @@ download() {
     say "downloading $asset ($VERSION)…"
     curl -fL --proto '=https' --proto-redir '=https' --tlsv1.2 --progress-bar "$url" -o "$stage/$asset" \
         || die "download failed: $url"
-    say "verifying $asset…"
+    say "verifying ${asset}…"
     curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 "$base/SHA256SUMS" -o "$stage/SHA256SUMS" \
         || die "couldn't download SHA256SUMS; refusing to install an unverified binary"
     want="$(awk -v a="$asset" '$2 == a { print $1; exit }' "$stage/SHA256SUMS")"
