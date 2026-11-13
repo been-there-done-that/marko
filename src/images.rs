@@ -270,11 +270,8 @@ pub fn decode_bytes(bytes: &[u8], max_w: u32) -> Option<(rune::Image, usize)> {
     if looks_like_svg(bytes) {
         return decode_svg(bytes.to_vec());
     }
-    let bytes = bytes.to_vec();
-    decode_with(move || {
-        let reader = image::ImageReader::new(std::io::Cursor::new(bytes));
-        decode_reader(reader)
-    }, max_w)
+    let bytes = std::io::Cursor::new(bytes);
+    decode_with(move || decode_reader(image::ImageReader::new(bytes)), max_w)
 }
 
 /// Reads the header first, refuses a picture whose decoded RGBA would exceed the budget, and only
