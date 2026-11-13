@@ -222,7 +222,7 @@ fn more_menu_copy_source_copies_markdown() {
     s.open_paths(&[fixture("basic.md")], 0.0);
     let id = s.tabs.active().map(|t| t.id).unwrap_or_default();
     let src = "# Title\n\nBody *text*.\n";
-    s.loaded(id, DocState::Ready { src: src.into(), large: false, lossy: false });
+    s.loaded(id, DocState::Ready { src: std::sync::Arc::new(src.into()), large: false, lossy: false });
     let mut rt = runtime(s);
     let clipboard = rune::clipboard::memory();
     rt.use_clipboard(&clipboard);

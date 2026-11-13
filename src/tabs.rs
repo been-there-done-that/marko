@@ -88,7 +88,7 @@ impl TabSet {
             .or_else(std::env::home_dir)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_default();
-        let doc = DocState::Ready { src: Arc::from(""), large: false, lossy: false };
+        let doc = DocState::Ready { src: Arc::default(), large: false, lossy: false };
         self.insert_tab(dir.join(name), doc, Some(EditBuffer::from_src("")), true)
     }
 

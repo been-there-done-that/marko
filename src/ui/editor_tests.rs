@@ -102,7 +102,7 @@ fn conflicted() -> Runtime<AppState> {
     if let Some(buf) = rt.state.tabs.active_mut().and_then(|t| t.edit.as_mut()) {
         buf.text.text.push_str(" edited");
     }
-    let changed = DocState::Ready { src: "# changed on disk".into(), large: false, lossy: false };
+    let changed = DocState::Ready { src: std::sync::Arc::new("# changed on disk".into()), large: false, lossy: false };
     rt.update(|s, _| s.loaded(id, changed));
     rt.frame(1.0 / 60.0);
     assert!(rt.find("conflict-banner").is_some(), "the banner shows");

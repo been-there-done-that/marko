@@ -9,7 +9,7 @@ use crate::load::DocState;
 fn tab_with_edit(s: &mut AppState, path: &Path, disk: &str, edited: &str) -> u64 {
     let (id, _) = s.tabs.open(path);
     let tab = s.tabs.get_mut(id).unwrap();
-    tab.doc = DocState::Ready { src: Arc::from(edited), large: false, lossy: false };
+    tab.doc = DocState::Ready { src: Arc::new(edited.into()), large: false, lossy: false };
     tab.edit = Some(EditBuffer::recovered(edited, disk));
     id
 }
