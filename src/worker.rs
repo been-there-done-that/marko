@@ -13,7 +13,9 @@ use crate::load::{self, DocState};
 use crate::sidebar;
 
 /// The background picture is decoded down to this width (4K).
-const BACKGROUND_DECODE_WIDTH: u32 = 3840;
+/// Wide enough for a 4K background without holding a full-resolution photo in memory. The
+/// background is blurred behind a scrim, so 2560 px does not look soft on a high-DPI screen.
+const BACKGROUND_DECODE_WIDTH: u32 = 2560;
 
 /// What a finished job hands back to the UI thread.
 pub enum JobResult {

@@ -15,6 +15,14 @@ thin LTO, stripped) on the Linux development laptop (Wayland session, 16 logical
 | Live reload of a 200 KB file | visible ≤ 100 ms after save | Not measured | Needs a timed save and a screen capture. |
 | Release binary (stripped, LTO) | ≤ 25 MB per OS | 27,275,672 bytes (26.0 MB) on Linux, from `ls -l` | Linux x86-64 only. 1 MB over budget. `opt-level = "s"`, `lto = "fat"` and `codegen-units = 1` brought it down from 42.2 MB; the last megabyte would need `opt-level = "z"` or dropping a feature such as Mermaid. |
 
+## Image memory
+
+Decoding keeps at most 32 MB of decoded RGBA at once, and a picture whose decoded form would
+exceed 64 MB is refused from its header before the decoder allocates. A tall image is scaled to
+the cache budget instead of being decoded at full size and then rejected. The background is
+decoded at 2560 px wide. These bound the transient decode peak; they do not change the RSS
+number above, which was taken with one small document and no large image on screen.
+
 ## Cold start
 
 Not measured. Rune's launch timing (`crates/rune/src/tooling/perf_warn/launch.rs`) is compiled

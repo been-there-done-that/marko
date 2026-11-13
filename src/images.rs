@@ -15,14 +15,15 @@ use crate::theme::READ_W_WIDE;
 
 /// Most decoded pictures kept at once.
 pub const CACHE_ENTRIES: usize = 32;
-/// Most decoded RGBA bytes kept at once (48 MB). This is part of the 90 MB process budget, so it
-/// stays well below it; the baseline with one README is about 63 MB.
-pub const CACHE_BYTES: usize = 48 * 1024 * 1024;
+/// Most decoded RGBA bytes kept at once (32 MB). `rune` keeps these as GPU textures, but on an
+/// integrated GPU they are shared system memory, so this stays well inside the process budget.
+pub const CACHE_BYTES: usize = 32 * 1024 * 1024;
 /// Wider pictures are scaled down on decode, to twice the reading column (1920 px).
 pub const MAX_DECODE_WIDTH: u32 = 2 * READ_W_WIDE as u32;
-/// Largest allocation the decoder may make for one picture. Bounded so a huge photo cannot
-/// briefly push the process far past its memory budget; 128 MB is about a 32-megapixel image.
-const MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
+/// Largest allocation the decoder may make for one picture. Bounded so a huge photo cannot push
+/// the process far past its memory budget. 64 MB is about a 16-megapixel image; larger ones are
+/// refused before decoding, because `image`'s `max_alloc` is advisory and some decoders ignore it.
+const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 /// Largest SVG file read (a vector drawing has no business being larger).
 const MAX_SVG_BYTES: u64 = 20 * 1024 * 1024;
 /// Side, in points, an SVG with no readable size is drawn at.
@@ -259,9 +260,8 @@ pub fn decode(path: &Path, max_w: u32) -> Option<(rune::Image, usize)> {
     }
     let path = path.to_path_buf();
     decode_with(move || {
-        let mut reader = image::ImageReader::open(&path).ok()?.with_guessed_format().ok()?;
-        limit(&mut reader);
-        reader.decode().ok()
+        let reader = image::ImageReader::open(&path).ok()?;
+        decode_reader(reader)
     }, max_w)
 }
 
@@ -272,27 +272,50 @@ pub fn decode_bytes(bytes: &[u8], max_w: u32) -> Option<(rune::Image, usize)> {
     }
     let bytes = bytes.to_vec();
     decode_with(move || {
-        let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?;
-        limit(&mut reader);
-        reader.decode().ok()
+        let reader = image::ImageReader::new(std::io::Cursor::new(bytes));
+        decode_reader(reader)
     }, max_w)
 }
+
+/// Reads the header first, refuses a picture whose decoded RGBA would exceed the budget, and only
+/// then decodes it. The dimensions are strict, so a malformed header cannot make a codec allocate
+/// far more than the limits allow.
+fn decode_reader<R: std::io::BufRead + std::io::Seek>(reader: image::ImageReader<R>) -> Option<image::DynamicImage> {
+    use image::ImageDecoder as _;
+
+    let mut reader = reader.with_guessed_format().ok()?;
+    limit(&mut reader);
+    let decoder = reader.into_decoder().ok()?;
+    let (w, h) = decoder.dimensions();
+    if too_big(w, h) {
+        return None;
+    }
+    image::DynamicImage::from_decoder(decoder).ok()
+}
+
+/// Whether a picture's decoded RGBA would exceed the per-image budget. Checked from the header so
+/// the decoder never allocates it.
+fn too_big(w: u32, h: u32) -> bool {
+    u64::from(w) * u64::from(h) * 4 > MAX_DECODE_ALLOC
+}
+
+/// Largest width or height a decoder may report. The pixel product is checked separately; this
+/// rejects absurd headers before a codec can trust them.
+const MAX_DECODE_SIDE: u32 = 16_384;
 
 fn limit<R: std::io::BufRead + std::io::Seek>(reader: &mut image::ImageReader<R>) {
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
+    // Strict dimension caps as well: `max_alloc` is advisory for some decoders.
+    limits.max_image_width = Some(MAX_DECODE_SIDE);
+    limits.max_image_height = Some(MAX_DECODE_SIDE);
     reader.limits(limits);
 }
 
 fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::UnwindSafe, max_w: u32) -> Option<(rune::Image, usize)> {
     // A codec can panic on a malformed file; that fails this one image, not the worker.
     let rgba = catch_unwind(move || read().map(image::DynamicImage::into_rgba8)).ok()??;
-    let rgba = if rgba.width() > max_w {
-        let h = (u64::from(rgba.height()) * u64::from(max_w) / u64::from(rgba.width())).max(1) as u32;
-        image::imageops::resize(&rgba, max_w, h, image::imageops::FilterType::Triangle)
-    } else {
-        rgba
-    };
+    let rgba = fit(rgba, max_w);
     let (w, h) = rgba.dimensions();
     let bytes = w as usize * h as usize * 4;
     if bytes > CACHE_BYTES {
@@ -301,6 +324,29 @@ fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::
     let img = shared_cache().rgba(w, h, rgba.into_raw());
     img.wait().ok()?;
     Some((img, bytes))
+}
+
+/// Scales a decoded picture down so it fits both the reading column and the cache, keeping its
+/// aspect ratio. Width is capped at `max_w`; if the result would still exceed the cache, it is
+/// scaled further. This also catches a tall, narrow image, which a width-only cap would keep at
+/// full size until the cache rejected it after decoding.
+fn fit(rgba: image::RgbaImage, max_w: u32) -> image::RgbaImage {
+    fit_with(rgba, max_w, CACHE_BYTES)
+}
+
+fn fit_with(rgba: image::RgbaImage, max_w: u32, max_bytes: usize) -> image::RgbaImage {
+    let (w, h) = rgba.dimensions();
+    let pixels = u64::from(w) * u64::from(h);
+    let max_pixels = (max_bytes / 4) as u64;
+    if w <= max_w && pixels <= max_pixels {
+        return rgba;
+    }
+    let by_width = f64::from(max_w) / f64::from(w);
+    let by_pixels = (max_pixels as f64 / pixels as f64).sqrt();
+    let scale = by_width.min(by_pixels).min(1.0);
+    let nw = ((f64::from(w) * scale).round() as u32).max(1);
+    let nh = ((f64::from(h) * scale).round() as u32).max(1);
+    image::imageops::resize(&rgba, nw, nh, image::imageops::FilterType::Triangle)
 }
 
 /// Largest an SVG may be after gzip decompression (32 MB), matching the rasteriser's own cap.

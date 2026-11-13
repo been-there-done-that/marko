@@ -68,6 +68,55 @@ fn decode_downscales_wide_images() {
 }
 
 #[test]
+fn huge_dimensions_are_refused_before_decoding() {
+    assert!(too_big(100_000, 100_000));
+    assert!(too_big(8_192, 8_192), "256 MB of RGBA is over the 64 MB budget");
+    assert!(!too_big(4_096, 4_096), "64 MB is exactly at the budget");
+    assert!(!too_big(1_920, 1_080));
+}
+
+#[test]
+fn fit_leaves_images_that_already_fit_alone() {
+    let fitted = fit_with(image::RgbaImage::new(800, 600), MAX_DECODE_WIDTH, CACHE_BYTES);
+    assert_eq!(fitted.dimensions(), (800, 600));
+}
+
+#[test]
+fn fit_scales_a_tall_image_to_the_cache() {
+    // 100 x 100 is 40 KB; a 16 KB budget must shrink it rather than refusing it after decoding.
+    let fitted = fit_with(image::RgbaImage::new(100, 100), MAX_DECODE_WIDTH, 16_000);
+    let (w, h) = fitted.dimensions();
+    assert!(w < 100 && h < 100, "both sides shrink, keeping the aspect ratio");
+    assert!(u64::from(w) * u64::from(h) * 4 <= 16_000 + 4 * 100, "rounding slack only");
+}
+
+#[test]
+fn a_header_only_huge_png_is_refused() {
+    // A PNG signature + IHDR claiming 100000 x 100000, with no IDAT. The dimensions are read
+    // from the header, so the picture is refused before any pixel buffer exists.
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = b"IHDR".to_vec();
+    ihdr.extend_from_slice(&100_000u32.to_be_bytes());
+    ihdr.extend_from_slice(&100_000u32.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    png.extend_from_slice(&13u32.to_be_bytes());
+    png.extend_from_slice(&ihdr);
+    png.extend_from_slice(&crc32(&ihdr).to_be_bytes());
+    assert!(decode_bytes(&png, MAX_DECODE_WIDTH).is_none());
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut c = 0xFFFF_FFFFu32;
+    for &b in data {
+        c ^= u32::from(b);
+        for _ in 0..8 {
+            c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+        }
+    }
+    !c
+}
+
+#[test]
 fn code_block_has_copy_button() {
     use crate::app::AppState;
     use crate::ui::view;
