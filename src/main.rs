@@ -5,6 +5,7 @@
 
 mod app;
 mod background;
+mod cli;
 mod commands;
 mod detach;
 mod edit;
@@ -28,6 +29,7 @@ mod tabs;
 mod theme;
 mod themes;
 mod ui;
+mod update;
 mod version;
 mod watch;
 mod worker;
@@ -278,7 +280,12 @@ static SCENES: &[Scene] = &[
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Version, help and update run in this terminal. They must come before `detach`, which
+    // otherwise hands the prompt back with no output.
+    if let Some(code) = cli::run() {
+        return std::process::ExitCode::from(code as u8);
+    }
     // From a terminal, give the terminal back: the window runs in a detached copy.
     detach::maybe_detach();
     // SAFETY: single-threaded, before any thread starts, so nothing else reads or writes the environment.
@@ -336,6 +343,7 @@ fn main() {
         }
     })
     .run();
+    std::process::ExitCode::SUCCESS
 }
 
 /// Runs once the window is up: starts the worker, takes the primary lock, restores the saved
