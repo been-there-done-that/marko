@@ -48,6 +48,49 @@ fn untitled_tabs_snapshot_without_a_path() {
 }
 
 #[test]
+fn periodic_snapshot_is_sent_only_when_it_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.md");
+    std::fs::write(&path, "old").unwrap();
+    let mut s = AppState::new();
+    let mut last = None;
+
+    // The first check always goes out, even empty, so a stale file is cleared.
+    assert_eq!(snapshot_if_changed(&s, &mut last), Some(Vec::new()));
+    assert_eq!(snapshot_if_changed(&s, &mut last), None, "nothing changed");
+
+    let id = tab_with_edit(&mut s, &path, "old", "edited");
+    let items = snapshot_if_changed(&s, &mut last).expect("a new dirty buffer is sent");
+    assert_eq!(items, snapshot(&s));
+    assert_eq!(snapshot_if_changed(&s, &mut last), None, "the same edits are not re-sent");
+
+    // An edit that keeps the length still changes the fingerprint.
+    let buf = s.tabs.get_mut(id).unwrap().edit.as_mut().unwrap();
+    buf.text.replace_text("Edited");
+    buf.mark_edited();
+    let items = snapshot_if_changed(&s, &mut last).expect("changed text is sent");
+    assert_eq!(items[0].text, "Edited");
+
+    // Saving the last dirty buffer sends one empty snapshot, then nothing.
+    s.tabs.get_mut(id).unwrap().edit.as_mut().unwrap().mark_saved("Edited");
+    assert_eq!(snapshot_if_changed(&s, &mut last), Some(Vec::new()));
+    assert_eq!(snapshot_if_changed(&s, &mut last), None);
+}
+
+#[test]
+fn closing_the_last_dirty_tab_sends_an_empty_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("a.md");
+    std::fs::write(&path, "old").unwrap();
+    let mut s = AppState::new();
+    let mut last = None;
+    let id = tab_with_edit(&mut s, &path, "old", "edited");
+    assert_eq!(snapshot_if_changed(&s, &mut last).map(|v| v.len()), Some(1));
+    s.tabs.close(id);
+    assert_eq!(snapshot_if_changed(&s, &mut last), Some(Vec::new()));
+}
+
+#[test]
 fn write_then_read_round_trips_and_consumes() {
     let dir = tempfile::tempdir().unwrap();
     let items = vec![Recovered { path: Some(dir.path().join("a.md")), name: "a.md".into(), text: "edited".into() }];

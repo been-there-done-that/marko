@@ -15,6 +15,7 @@ use crate::app::AppState;
 use crate::edit::EditBuffer;
 use crate::load::{self, DocState, LARGE_BYTES};
 use crate::paths::canonical;
+use crate::tabs::Tab;
 use crate::watch::content_hash;
 
 /// The recovery file's name in the config folder.
@@ -30,22 +31,50 @@ pub struct Recovered {
     pub text: String,
 }
 
-/// The dirty buffers in `s`, in tab order.
+/// What a periodic snapshot held, without the texts: per dirty tab its id, path, untitled flag,
+/// and the text's length and hash. An equal fingerprint means an equal snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fingerprint(Vec<(u64, PathBuf, bool, usize, u64)>);
+
+/// The dirty buffers in `s`, in tab order. Checks every buffer by its hash: the close path's
+/// final snapshot relies on nothing but the text.
 pub fn snapshot(s: &AppState) -> Vec<Recovered> {
     s.tabs
         .iter()
         .filter_map(|t| {
             let buf = t.edit.as_ref()?;
-            if !buf.dirty() {
-                return None;
-            }
-            Some(Recovered {
-                path: (!t.untitled).then(|| t.path.clone()),
-                name: t.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled.md".into()),
-                text: buf.text(),
-            })
+            buf.dirty().then(|| item(t, buf))
         })
         .collect()
+}
+
+/// The periodic snapshot: the dirty buffers, or None when they are what `last` saw, so an idle
+/// app neither clones the texts nor rewrites the file. Only buffers edited since they were last
+/// clean are hashed. When the last dirty buffer is saved or closed the fingerprint changes too,
+/// so one empty snapshot still goes out and the file is removed.
+pub fn snapshot_if_changed(s: &AppState, last: &mut Option<Fingerprint>) -> Option<Vec<Recovered>> {
+    let dirty: Vec<(&Tab, &EditBuffer, u64)> = s
+        .tabs
+        .iter()
+        .filter_map(|t| {
+            let buf = t.edit.as_ref()?;
+            Some((t, buf, buf.unsaved_hash()?))
+        })
+        .collect();
+    let print = Fingerprint(dirty.iter().map(|(t, buf, hash)| (t.id, t.path.clone(), t.untitled, buf.text.text.len(), *hash)).collect());
+    if last.as_ref() == Some(&print) {
+        return None;
+    }
+    *last = Some(print);
+    Some(dirty.iter().map(|(t, buf, _)| item(t, buf)).collect())
+}
+
+fn item(t: &Tab, buf: &EditBuffer) -> Recovered {
+    Recovered {
+        path: (!t.untitled).then(|| t.path.clone()),
+        name: t.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Untitled.md".into()),
+        text: buf.text(),
+    }
 }
 
 /// Writes `items` to `dir`, or removes the file when there is nothing to recover. Atomic:
