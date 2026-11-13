@@ -43,6 +43,17 @@ impl EditBuffer {
         content_hash(&self.text.text) != self.saved_hash
     }
 
+    /// The text's hash when the buffer is dirty, else None. A buffer not edited since it was last
+    /// clean (`dirty_hint` false) is skipped without hashing: every way of clearing the hint
+    /// leaves the text equal to the saved one.
+    pub fn unsaved_hash(&self) -> Option<u64> {
+        if !self.edited {
+            return None;
+        }
+        let hash = content_hash(&self.text.text);
+        (hash != self.saved_hash).then_some(hash)
+    }
+
     /// Marks `saved` as what is on disk now. Text typed after the save began stays dirty.
     pub fn mark_saved(&mut self, saved: &str) {
         self.saved_hash = content_hash(saved);
