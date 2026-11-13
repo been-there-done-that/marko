@@ -55,11 +55,15 @@ const WINDOW_CLASS: &str = "marko";
 /// How long a changed session waits before it is saved. Slightly longer than the debounce's
 /// own quiet period, so the wake-up that checks it always finds it due.
 const SAVE_WAKE: Duration = Duration::from_millis(1100);
+/// How often a dirty buffer is snapshotted for crash recovery.
+const RECOVERY_EVERY: f64 = 5.0;
 
 /// The worker's job queue. Set once the window is ready.
 static JOBS: OnceLock<Sender<Job>> = OnceLock::new();
 /// Saving state, set once the window is ready.
 static PERSIST: OnceLock<Mutex<Persist>> = OnceLock::new();
+/// The recovery writer, set once the window is ready (primary instance only).
+static RECOVERY_TX: OnceLock<Sender<RecoveryMsg>> = OnceLock::new();
 /// Live reload, started once the window is ready. Its watched folders follow the tabs and roots.
 static WATCHER: OnceLock<Mutex<Watcher>> = OnceLock::new();
 
@@ -80,6 +84,16 @@ struct Persist {
     debounce: SaveDebounce,
     /// Sends due snapshots to the saver thread, the only thread that writes the prefs.
     saves: Sender<Session>,
+    /// When the last crash-recovery snapshot was taken.
+    recovery_at: f64,
+}
+
+/// Work for the recovery writer thread.
+enum RecoveryMsg {
+    Snapshot(Vec<recovery::Recovered>),
+    /// Asks the writer to acknowledge everything queued before it, so a close can wait for the
+    /// final snapshot to land instead of racing an older one.
+    Flush(Sender<()>),
 }
 
 /// Runs queued jobs on this thread. Scenes render without a worker, so they settle their loads here.
@@ -352,10 +366,12 @@ fn start(handle: AppHandle<AppState>) {
         fonts_handle.update(move |s, _| s.fonts = list);
     });
     let saved = session::load(&prefs);
-    let primary = prefs.path().and_then(|p| p.parent()).and_then(session::primary_lock);
+    let config_dir = prefs.path().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+    let primary = config_dir.as_deref().and_then(session::primary_lock);
+    let is_primary = primary.is_some();
     // Only the primary window restores recovery, so two windows don't reopen the same buffers.
-    let recovered = if primary.is_some() {
-        prefs.path().and_then(|p| p.parent()).map(recovery::read).unwrap_or_default()
+    let recovered = if is_primary {
+        config_dir.as_deref().map(recovery::read).unwrap_or_default()
     } else {
         Vec::new()
     };
@@ -368,7 +384,42 @@ fn start(handle: AppHandle<AppState>) {
             }
         })
         .expect("the OS refused to start the session saver thread");
-    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves }));
+    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves, recovery_at: 0.0 }));
+    if is_primary && let Some(dir) = config_dir {
+        let (rec_tx, rec_rx) = mpsc::channel::<RecoveryMsg>();
+        let _ = thread::Builder::new().name("recovery-save".into()).spawn(move || {
+            while let Ok(msg) = rec_rx.recv() {
+                match msg {
+                    RecoveryMsg::Snapshot(mut items) => {
+                        // Keep only the last of a burst, but stop at a flush so its ack is not lost.
+                        loop {
+                            match rec_rx.try_recv() {
+                                Ok(RecoveryMsg::Snapshot(next)) => items = next,
+                                Ok(RecoveryMsg::Flush(ack)) => {
+                                    if let Err(e) = recovery::write(&dir, &items) {
+                                        eprintln!("marko: couldn't write the recovery file: {e}");
+                                    }
+                                    let _ = ack.send(());
+                                    break;
+                                }
+                                Err(_) => {
+                                    if let Err(e) = recovery::write(&dir, &items) {
+                                        eprintln!("marko: couldn't write the recovery file: {e}");
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // Everything queued before the flush has been written already.
+                    RecoveryMsg::Flush(ack) => {
+                        let _ = ack.send(());
+                    }
+                }
+            }
+        });
+        let _ = RECOVERY_TX.set(rec_tx);
+    }
 
     let cli: Vec<PathBuf> = rune::extra_args().iter().filter(|a| !detach::is_flag(a)).map(PathBuf::from).collect();
     handle.update(move |s, _| {
@@ -427,6 +478,12 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
                 snapshot.frame = p.frame;
                 let _ = p.saves.send(snapshot);
             }
+            if now - p.recovery_at >= RECOVERY_EVERY {
+                p.recovery_at = now;
+                if let Some(tx) = RECOVERY_TX.get() {
+                    let _ = tx.send(RecoveryMsg::Snapshot(recovery::snapshot(s)));
+                }
+            }
         }
     }
     cleared || stats_changed || progress_changed || bg_changed
@@ -468,7 +525,19 @@ fn write_recovery(s: &AppState) {
         return;
     }
     let Some(dir) = Prefs::open(APP_ID).path().and_then(|p| p.parent().map(|p| p.to_path_buf())) else { return };
-    if let Err(e) = recovery::write(&dir, &recovery::snapshot(s)) {
+    let items = recovery::snapshot(s);
+    // Hand the final snapshot to the writer and wait for it, so an older queued snapshot cannot
+    // land after this one. Fall back to a synchronous write when the writer is gone.
+    if let Some(tx) = RECOVERY_TX.get() {
+        let (ack_tx, ack_rx) = mpsc::channel();
+        if tx.send(RecoveryMsg::Snapshot(items.clone())).is_ok()
+            && tx.send(RecoveryMsg::Flush(ack_tx)).is_ok()
+            && ack_rx.recv_timeout(Duration::from_millis(500)).is_ok()
+        {
+            return;
+        }
+    }
+    if let Err(e) = recovery::write(&dir, &items) {
         eprintln!("marko: couldn't write the recovery file: {e}");
     }
 }

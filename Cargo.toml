@@ -30,5 +30,7 @@ winresource = "0.1"
 tempfile = "3"
 
 [profile.release]
-lto = "thin"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
 strip = true

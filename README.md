@@ -43,7 +43,9 @@ This installs to `%LOCALAPPDATA%\Programs\Marko`, adds a Start menu entry and pu
 | Build from source | `./install.sh --from-source` (needs Rust) | `cargo build --release` |
 | Uninstall | `sh -s -- --uninstall` | `.\install.ps1 -Uninstall` |
 
-Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Releases](https://github.com/been-there-done-that/marko/releases) page.
+Prebuilt downloads for every platform, with a `SHA256SUMS` file, are on the [Releases](https://github.com/been-there-done-that/marko/releases) page. The installers verify that checksum before running anything.
+
+> Marko isn't notarized by Apple. The macOS installer removes the download quarantine flag after the SHA-256 check passes; if you'd rather keep Gatekeeper in the loop, build it yourself with `--from-source`.
 
 ## Use
 

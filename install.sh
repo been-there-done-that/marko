@@ -136,6 +136,9 @@ download() {
         die "need sha256sum or shasum to verify the download"
     fi
     [ "$got" = "$want" ] || die "checksum mismatch for $asset (got $got, want $want)"
+    if [ "$PLATFORM" = macos ]; then
+        say "note: Marko isn't notarized by Apple; this removes the download quarantine flag after verifying the checksum."
+    fi
     tar xzf "$stage/$asset" -C "$stage"
     if [ "$PLATFORM" = linux ]; then install_linux "$stage/marko"; else install_macos "$stage"; fi
 }
