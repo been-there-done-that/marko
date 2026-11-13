@@ -30,7 +30,7 @@ check and a private one for the fetch.
 
 ## Decode peak and memory
 
-Done in this pass:
+Done:
 
 - The header is read first and a picture whose decoded RGBA would exceed 64 MB is refused
   **before** the decoder allocates (`too_big`). `image`'s `max_alloc` is advisory, so this check
@@ -43,20 +43,30 @@ Done in this pass:
   output when the picture is larger than the column. A 100 MP photo at 1/4 no longer allocates
   its full-resolution buffer. CMYK, 16-bit and lossless JPEGs return `None` and fall back to
   `image`, which handles them.
+- Only the active tab's images around its scroll position (plus the first window) are queued.
+  An inactive tab queues nothing until it is shown, the editor preview uses its own list, and
+  web images use the same window.
+- At most 4 image decodes are in flight (queued, decoding, or decoded but not yet applied), so
+  results cannot pile up in the channel faster than the UI applies them. A failed decode moves
+  to a `failed` set, which frees the slot and stops retries until the file changes.
+- A stable window is decoded once. A path decoded since it entered the window is not queued
+  again even if the cache evicts it; a path new to the window has that guard cleared, so
+  scrolling re-decodes what was evicted.
+- One decode at a time across the local and web workers (`DECODE_LOCK`), so two large pictures
+  cannot double the transient peak.
 
-Remaining, in value order:
+Remaining:
 
-1. **Lazy image decoding.** Today every image in the open document is queued on load. Decoding
-   only the images within about one viewport of the visible area would cut CPU and the transient
-   peak for image-heavy documents. The Markdown image callback already runs during layout and
-   knows the visible range.
-2. **Cap concurrent decodes.** Local and web decodes run on separate workers and can peak
-   together. A semaphore would bound the worst case to one image's buffers.
-3. **Peak for non-JPEGs is still ~2× the cap.** PNG/WebP cannot be scaled during decode, so a
-   16-megapixel PNG can allocate 64 MB in the decoder plus up to 64 MB for RGBA. Lowering
-   `MAX_DECODE_ALLOC` trades support for peak; 64 MB lets a 12–16 MP photo open.
-4. **Measure it.** The budget doc has no image-heavy fixture. Add one (a README with several
-   large photos) and record peak RSS with `/proc/<pid>/status` sampled during decode.
+1. **Peak for non-JPEGs is still ~4–5× the RGBA cap.** The image-heavy fixture measured
+   266.9 MB HWM against a 48.7 MB baseline. `image`'s PNG decoder allocates a full-resolution
+   frame regardless of `max_alloc`; its own `set_limits` carries a TODO because it cannot
+   constrain the `png` crate's internal buffers. Streaming PNG decode row by row, with a box or
+   nearest downscale into the target, would remove the 48 MB frame and is the next real win.
+   Lowering `MAX_DECODE_ALLOC` only refuses more pictures.
+2. **The window is a heuristic.** It assumes images are spread through the document in order.
+   A document with one huge image followed by many small ones can still show alt text for an
+   image that is on screen but outside the index window. The first window and the cache make
+   this rare; a real fix needs layout positions from the renderer.
 
 ## Artifact signing and notarization
 

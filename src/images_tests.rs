@@ -49,6 +49,16 @@ fn cache_evicts_by_count() {
 }
 
 #[test]
+fn a_decoded_path_can_be_forgotten() {
+    let mut c = ImageCache::new();
+    let p = PathBuf::from("/x.png");
+    c.insert(p.clone(), tiny(), 4);
+    assert!(c.decoded(&p));
+    c.clear_decoded(&p);
+    assert!(!c.decoded(&p), "a window change makes the path queue again");
+}
+
+#[test]
 fn bad_image_is_none() {
     let dir = tempfile::tempdir().unwrap();
     let bad = dir.path().join("bad.png");

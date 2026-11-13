@@ -42,6 +42,16 @@ pub struct Tab {
     /// Set instead of reloading when the file changes under unsaved edits. The editor's banner
     /// asks Reload or Keep Mine.
     pub conflict: bool,
+    /// The document's local images, in document order. Decoded a window at a time as it scrolls.
+    pub images: Vec<PathBuf>,
+    /// The editor preview's local images, in document order.
+    pub edit_images: Vec<PathBuf>,
+    /// The document image window last queued, so a stable window is not decoded again.
+    pub image_window: Vec<PathBuf>,
+    /// The editor preview's image window last queued.
+    pub edit_window: Vec<PathBuf>,
+    /// The web image window last queued.
+    pub web_window: Vec<String>,
 }
 
 pub struct TabSet {
@@ -87,7 +97,7 @@ impl TabSet {
         let at = self.active.map_or(self.tabs.len(), |a| a + 1);
         let id = self.next_id;
         self.next_id += 1;
-        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, scroll_at: progress::tab_live(), edit, untitled, changed: false, deleted: false, hash: None, rev: 0, preview_rev: 0, last_edit: 0.0, conflict: false });
+        self.tabs.insert(at, Tab { id, path, doc, scroll: 0.0, scroll_at: progress::tab_live(), edit, untitled, changed: false, deleted: false, hash: None, rev: 0, preview_rev: 0, last_edit: 0.0, conflict: false, images: Vec::new(), edit_images: Vec::new(), image_window: Vec::new(), edit_window: Vec::new(), web_window: Vec::new() });
         self.set_active(Some(at));
         id
     }

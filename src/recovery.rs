@@ -118,6 +118,14 @@ pub fn restore(s: &mut AppState, items: Vec<Recovered>) {
         tab.changed = false;
         tab.rev = tab.rev.wrapping_add(1);
         tab.preview_rev = tab.rev;
+        let srcs = crate::images::image_srcs(crate::load::strip_frontmatter(&item.text));
+        let (mut local, mut web) = crate::images::split_srcs(&tab.path, &srcs);
+        local.sort();
+        local.dedup();
+        web.sort();
+        web.dedup();
+        tab.images = local;
+        s.doc_web_images(id, web);
     }
 }
 

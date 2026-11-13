@@ -20,9 +20,14 @@ use crate::watch::{content_hash, FileEvent};
 
 /// Most recently opened files kept for the Open menu.
 const RECENT_CAP: usize = 16;
-/// Most pictures queued or failed at once, so a document naming thousands of images cannot
-/// fill the job queue.
+/// Most web pictures queued at once, so a document naming thousands of images cannot fill the
+/// job queue.
 const MAX_PENDING_IMAGES: usize = 256;
+/// Distinct image decodes in flight at once (queued, decoding, or decoded but not yet applied).
+/// This bounds how many decoded pictures can sit in the result channel.
+const MAX_IN_FLIGHT_IMAGES: usize = 4;
+/// Images decoded on each side of the reader's scroll position. A short document is decoded whole.
+const LAZY_IMAGE_WINDOW: usize = 2;
 /// How long typing must pause before the editor preview re-renders the document.
 const PREVIEW_QUIET: f64 = 0.12;
 /// How long a toast stays on screen, in seconds.
@@ -414,13 +419,77 @@ impl AppState {
     /// on the worker.
     pub fn want_images(&mut self, paths: Vec<PathBuf>) {
         for p in paths {
-            if self.images.pending_len() >= MAX_PENDING_IMAGES {
+            if self.images.pending_len() >= MAX_IN_FLIGHT_IMAGES {
                 break;
             }
-            if !self.images.has(&p) && !self.images.pending(&p) {
+            if !self.images.has(&p) && !self.images.pending(&p) && !self.images.failed(&p) && !self.images.decoded(&p) {
                 self.images.mark_pending(p.clone());
                 self.jobs.push(Job::Image { key: p });
             }
+        }
+    }
+
+    /// The local images a loaded document names, in document order. Only the active tab's window
+    /// is queued now; the rest wait until it is scrolled to.
+    pub fn load_images(&mut self, tab: u64, images: Vec<PathBuf>) {
+        if let Some(t) = self.tabs.get_mut(tab) {
+            t.images = images;
+            t.image_window.clear();
+        }
+        self.want_visible_images(tab);
+    }
+
+    /// Queues the images around the active document's scroll position. Called each frame so the
+    /// queue refills as the reader scrolls and as earlier decodes finish.
+    pub fn want_visible_images(&mut self, tab: u64) {
+        if self.tabs.active().map(|t| t.id) != Some(tab) {
+            return;
+        }
+        let paths = {
+            let Some(t) = self.tabs.get_mut(tab) else { return };
+            let [offset, max, _, _] = t.scroll_at.get();
+            let win = window(&t.images, crate::progress::fraction(offset, max));
+            if win != t.image_window {
+                for p in &win {
+                    if !t.image_window.contains(p) {
+                        self.images.clear_decoded(p);
+                    }
+                }
+                t.image_window = win.clone();
+            }
+            win
+        };
+        self.want_images(paths);
+    }
+
+    /// Queues the editor preview's images around its scroll position.
+    pub fn want_visible_edit_images(&mut self) {
+        let paths = {
+            let Some(t) = self.tabs.active_mut() else { return };
+            let [offset, max] = self.preview_at.get();
+            let win = window(&t.edit_images, crate::progress::fraction(offset, max));
+            if win != t.edit_window {
+                for p in &win {
+                    if !t.edit_window.contains(p) {
+                        self.images.clear_decoded(p);
+                    }
+                }
+                t.edit_window = win.clone();
+            }
+            win
+        };
+        self.want_images(paths);
+    }
+
+    /// Runs once per frame: the image window the current mode shows.
+    pub fn sync_visible_images(&mut self) {
+        if matches!(self.mode, Mode::Edit) {
+            self.want_visible_edit_images();
+        } else if let Some(id) = self.tabs.active().map(|t| t.id) {
+            self.want_visible_images(id);
+        }
+        if let Some(id) = self.tabs.active().map(|t| t.id) {
+            self.want_web_images(id);
         }
     }
 
@@ -431,8 +500,11 @@ impl AppState {
         // retried now that it changed. A picture already queued is left alone.
         let cached = self.images.has(path);
         let pending = self.images.pending(path);
-        if (cached && !pending) || (!cached && pending) {
+        let failed = self.images.failed(path);
+        if (cached && !pending) || failed {
             self.images.clear_pending(path);
+            self.images.clear_failed(path);
+            self.images.clear_decoded(path);
             self.images.mark_pending(path.to_path_buf());
             self.jobs.push(Job::Image { key: path.to_path_buf() });
         }
@@ -454,7 +526,7 @@ impl AppState {
                 break;
             }
             let key = crate::images::web_key(url);
-            if !self.images.has(&key) && !self.images.pending(&key) {
+            if !self.images.has(&key) && !self.images.pending(&key) && !self.images.failed(&key) && !self.images.decoded(&key) {
                 self.images.mark_pending(key);
                 self.jobs.push(Job::WebImage { url: url.clone() });
             }
@@ -467,15 +539,44 @@ impl AppState {
             self.web_urls.remove(&tab);
             return;
         }
-        self.want_web(tab, &urls);
         self.web_urls.insert(tab, urls);
+        self.want_web_images(tab);
     }
 
-    /// The Load button: allows `tab`'s web images and fetches them.
+    /// The Load button: allows `tab`'s web images and fetches the visible window.
     pub fn load_web_images(&mut self, tab: u64) {
         self.web_allowed.insert(tab);
-        let urls = self.web_urls.get(&tab).cloned().unwrap_or_default();
-        self.want_web(tab, &urls);
+        self.want_web_images(tab);
+    }
+
+    /// Queues the web images around the active tab's scroll position. Like local images, only a
+    /// window is fetched; scrolling to the rest queues them.
+    pub fn want_web_images(&mut self, tab: u64) {
+        if self.tabs.active().map(|t| t.id) != Some(tab) {
+            return;
+        }
+        let win = {
+            let Some(t) = self.tabs.get_mut(tab) else { return };
+            let Some(urls) = self.web_urls.get(&tab) else { return };
+            let frac = if matches!(self.mode, Mode::Edit) {
+                let [offset, max] = self.preview_at.get();
+                crate::progress::fraction(offset, max)
+            } else {
+                let [offset, max, _, _] = t.scroll_at.get();
+                crate::progress::fraction(offset, max)
+            };
+            let win = window(urls, frac);
+            if win != t.web_window {
+                for url in &win {
+                    if !t.web_window.contains(url) {
+                        self.images.clear_decoded(&crate::images::web_key(url));
+                    }
+                }
+                t.web_window = win.clone();
+            }
+            win
+        };
+        self.want_web(tab, &win);
     }
 
     /// How many web images `tab` shows only as alt text because loading them is not allowed yet.
@@ -501,17 +602,22 @@ impl AppState {
         let (local, mut web) = crate::images::split_srcs(&path, &srcs);
         web.sort();
         web.dedup();
-        self.want_images(local);
+        if let Some(t) = self.tabs.get_mut(id) {
+            t.edit_images = local;
+            t.edit_window.clear();
+        }
+        self.want_visible_edit_images();
         self.doc_web_images(id, web);
     }
 
-    /// A worker finished decoding an image. A failed decode stays pending, so it is not retried.
+    /// A worker finished decoding an image. A failure frees the slot and is remembered, so a
+    /// broken picture is not retried until its file changes.
     pub fn image_ready(&mut self, key: PathBuf, image: Option<(rune::Image, usize)>) {
         match image {
             Some((img, bytes)) => self.images.insert(key, img, bytes),
             // A refresh that failed (a file caught mid-write) keeps the old picture and may be tried again.
             None if self.images.has(&key) => self.images.clear_pending(&key),
-            None => {}
+            None => self.images.mark_failed(key),
         }
     }
 
@@ -655,6 +761,24 @@ impl AppState {
         self.recent.insert(0, key);
         self.recent.truncate(RECENT_CAP);
     }
+}
+
+/// The items to queue around `frac` (0 at the top, 1 at the bottom). A short list is taken
+/// whole. A long one gets one window around the reader plus the first window, so scrolling back
+/// to the top is instant; the cache evicts the rest as it fills.
+fn window<T: Clone>(items: &[T], frac: f32) -> Vec<T> {
+    let n = items.len();
+    if n <= LAZY_IMAGE_WINDOW * 2 {
+        return items.to_vec();
+    }
+    let center = ((frac * n as f32) as usize).min(n - 1);
+    let lo = center.saturating_sub(LAZY_IMAGE_WINDOW);
+    let hi = (center + LAZY_IMAGE_WINDOW).min(n);
+    let mut out = items[lo..hi].to_vec();
+    if lo >= LAZY_IMAGE_WINDOW {
+        out.extend_from_slice(&items[..LAZY_IMAGE_WINDOW]);
+    }
+    out
 }
 
 

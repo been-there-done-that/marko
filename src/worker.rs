@@ -78,7 +78,7 @@ impl JobResult {
         match self {
             JobResult::Loaded { tab, doc, images, web } => {
                 s.loaded(tab, doc);
-                s.want_images(images);
+                s.load_images(tab, images);
                 s.doc_web_images(tab, web);
             }
             JobResult::Scanned { root, tree, open } => s.scanned(&root, *tree, open),

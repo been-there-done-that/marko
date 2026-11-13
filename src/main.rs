@@ -437,6 +437,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.sync_preview_scroll(tx);
     let preview_changed = s.catch_up_preview(now, tx);
     s.sync_edit_images();
+    s.sync_visible_images();
     ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
     settings_sync::tick(s, tx);

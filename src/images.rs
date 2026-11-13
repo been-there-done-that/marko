@@ -7,7 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use pulldown_cmark::{Event, Parser, Tag};
 
@@ -122,10 +122,15 @@ pub fn split_srcs(doc: &Path, srcs: &[String]) -> (Vec<PathBuf>, Vec<String>) {
 
 /// The picture cache: decoded images by absolute path, bounded by entries and by decoded bytes,
 /// least recently used first out. A path that was asked for and has no picture is `pending`:
-/// queued, or failed, so it is not asked for again.
+/// queued or still decoding. One whose decode failed is `failed`, so a broken picture frees its
+/// slot and is not asked for again until the file changes.
 pub struct ImageCache {
     entries: HashMap<PathBuf, Entry>,
     pending: HashSet<PathBuf>,
+    failed: HashSet<PathBuf>,
+    /// Paths decoded since they entered the window. Keeps a stable window from re-decoding a
+    /// picture the cache had to evict; a window change clears the ones that are new to it.
+    decoded: HashSet<PathBuf>,
     bytes: usize,
     tick: Cell<u64>,
     /// Bumped whenever the decoded set changes, so a memoised view knows to rebuild.
@@ -146,7 +151,15 @@ impl Default for ImageCache {
 
 impl ImageCache {
     pub fn new() -> Self {
-        Self { entries: HashMap::new(), pending: HashSet::new(), bytes: 0, tick: Cell::new(0), version: 0 }
+        Self {
+            entries: HashMap::new(),
+            pending: HashSet::new(),
+            failed: HashSet::new(),
+            decoded: HashSet::new(),
+            bytes: 0,
+            tick: Cell::new(0),
+            version: 0,
+        }
     }
 
     fn next_tick(&self) -> u64 {
@@ -176,6 +189,11 @@ impl ImageCache {
     /// entries (never this one) until both bounds hold again.
     pub fn insert(&mut self, p: PathBuf, img: rune::Image, bytes: usize) {
         self.pending.remove(&p);
+        self.failed.remove(&p);
+        if self.decoded.len() >= 4096 {
+            self.decoded.clear();
+        }
+        self.decoded.insert(p.clone());
         if let Some(old) = self.entries.remove(&p) {
             self.bytes -= old.bytes;
         }
@@ -221,6 +239,33 @@ impl ImageCache {
         self.pending.insert(p);
     }
 
+    /// Records that `p` failed to decode. Its slot is freed, and it is not asked for again until
+    /// the file changes, so a broken picture cannot fill the in-flight cap or spin the decoder.
+    pub fn mark_failed(&mut self, p: PathBuf) {
+        self.pending.remove(&p);
+        if self.failed.len() >= 512 {
+            self.failed.clear();
+        }
+        self.failed.insert(p);
+    }
+
+    pub fn failed(&self, p: &Path) -> bool {
+        self.failed.contains(p)
+    }
+
+    pub fn clear_failed(&mut self, p: &Path) {
+        self.failed.remove(p);
+    }
+
+    /// True when `p` has been decoded since it entered the current window.
+    pub fn decoded(&self, p: &Path) -> bool {
+        self.decoded.contains(p)
+    }
+
+    pub fn clear_decoded(&mut self, p: &Path) {
+        self.decoded.remove(p);
+    }
+
     /// Decoded bytes held.
     #[allow(dead_code)] // For the memory budget (Task 9) and the tests.
     pub fn bytes(&self) -> usize {
@@ -238,6 +283,14 @@ impl ImageCache {
 fn shared_cache() -> &'static rune::ImageCache {
     static CACHE: OnceLock<rune::ImageCache> = OnceLock::new();
     CACHE.get_or_init(|| rune::ImageCache::new(Arc::new(|| {})))
+}
+
+/// One decode at a time across the local and web workers. The transient buffers are the largest
+/// memory spike in the app; two large pictures decoded together would double it.
+static DECODE_LOCK: Mutex<()> = Mutex::new(());
+
+fn decode_lock() -> std::sync::MutexGuard<'static, ()> {
+    DECODE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The cache key a fetched web image is stored under. Not an absolute path, so it never meets a local file.
@@ -258,11 +311,13 @@ pub fn decode(path: &Path, max_w: u32) -> Option<(rune::Image, usize)> {
         }
         return decode_svg(std::fs::read(path).ok()?);
     }
+    // The fast path takes the decode lock itself, so it must run before `decode_with`, which
+    // takes the same (non-reentrant) lock for the RGBA conversion and scaling.
+    if let Some(img) = fast_jpeg_file(path, max_w) {
+        return decode_with(move || Some(img), max_w);
+    }
     let path = path.to_path_buf();
     decode_with(move || {
-        if let Some(img) = fast_jpeg_file(&path, max_w) {
-            return Some(img);
-        }
         let reader = image::ImageReader::open(&path).ok()?;
         decode_reader(reader)
     }, max_w)
@@ -313,6 +368,8 @@ fn is_jpeg(path: &Path) -> bool {
 fn decode_jpeg<R: std::io::Read>(reader: R, max_w: u32) -> Option<image::DynamicImage> {
     use jpeg_decoder::{CodingProcess, PixelFormat};
 
+    // The DCT decode is the expensive part; serialize it with the other decoders too.
+    let _guard = decode_lock();
     let mut dec = jpeg_decoder::Decoder::new(reader);
     dec.set_max_decoding_buffer_size(MAX_DECODE_ALLOC as usize * 2);
     dec.read_info().ok()?;
@@ -375,6 +432,7 @@ fn limit<R: std::io::BufRead + std::io::Seek>(reader: &mut image::ImageReader<R>
 }
 
 fn decode_with(read: impl FnOnce() -> Option<image::DynamicImage> + std::panic::UnwindSafe, max_w: u32) -> Option<(rune::Image, usize)> {
+    let _guard = decode_lock();
     // A codec can panic on a malformed file; that fails this one image, not the worker.
     let rgba = catch_unwind(move || read().map(image::DynamicImage::into_rgba8)).ok()??;
     let rgba = fit(rgba, max_w);
@@ -462,6 +520,7 @@ fn svg_is_self_contained(bytes: &[u8]) -> bool {
 /// Rasterises SVG (or gzipped SVG) bytes at the drawing's own size, no wider than the wide
 /// reading column.
 fn decode_svg(bytes: Vec<u8>) -> Option<(rune::Image, usize)> {
+    let _guard = decode_lock();
     let bytes = if bytes.starts_with(&[0x1f, 0x8b]) { bounded_gunzip(&bytes, MAX_SVG_DECOMPRESSED)? } else { bytes };
     if !svg_is_self_contained(&bytes) {
         return None;
