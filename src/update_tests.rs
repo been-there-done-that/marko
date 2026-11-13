@@ -3,6 +3,17 @@ use sha2::{Digest, Sha256};
 use super::*;
 
 #[test]
+fn windows_helper_waits_without_launching_marko() {
+    let script = helper_script(
+        std::path::Path::new(r"C:\Temp\marko.new.exe"),
+        std::path::Path::new(r"C:\Program Files\Marko\marko.exe"),
+    );
+    assert!(script.contains("move /y"));
+    assert!(script.contains(":retry"));
+    assert!(!script.contains("start "));
+}
+
+#[test]
 fn newer_versions() {
     assert!(is_newer("0.2.0", "0.1.2"));
     assert!(is_newer("v1.0.0", "0.9.9"));

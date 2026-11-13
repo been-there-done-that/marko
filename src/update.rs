@@ -274,6 +274,33 @@ fn install(tmp: &Path, asset: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The batch file that finishes a Windows update after this process exits.
+///
+/// Windows locks a running `.exe`, so the move is retried while Marko is open; the update
+/// finishes when it closes. It deliberately does **not** start Marko: doing that opened a new
+/// window on every `marko update`.
+#[cfg(any(windows, test))]
+fn helper_script(new: &Path, exe: &Path) -> String {
+    format!(
+        concat!(
+            "@echo off\r\n",
+            "set /a tries=0 >nul\r\n",
+            "ping 127.0.0.1 -n 3 >nul\r\n",
+            ":retry\r\n",
+            "move /y \"{}\" \"{}\" >nul 2>&1\r\n",
+            "if not exist \"{}\" goto done\r\n",
+            "ping 127.0.0.1 -n 2 >nul\r\n",
+            "set /a tries+=1 >nul\r\n",
+            "if %tries% lss 60 goto retry\r\n",
+            ":done\r\n",
+            "del \"%~f0\"\r\n",
+        ),
+        new.display(),
+        exe.display(),
+        new.display()
+    )
+}
+
 #[cfg(windows)]
 fn install(tmp: &Path, asset: &str) -> Result<(), String> {
     let file = fs::File::open(tmp.join(asset)).map_err(|e| format!("couldn't open the archive: {e}"))?;
@@ -286,13 +313,8 @@ fn install(tmp: &Path, asset: &str) -> Result<(), String> {
     out.sync_all().map_err(|e| format!("couldn't flush {}: {e}", new.display()))?;
     drop(out);
     let bat = std::env::temp_dir().join("marko-update.bat");
-    let script = format!(
-        "@echo off\r\nping 127.0.0.1 -n 3 >nul\r\nmove /y \"{}\" \"{}\"\r\nstart \"\" \"{}\"\r\ndel \"%~f0\"\r\n",
-        new.display(),
-        exe.display(),
-        exe.display()
-    );
-    fs::write(&bat, script).map_err(|e| format!("couldn't write the update helper: {e}"))?;
+    fs::write(&bat, helper_script(&new, &exe))
+        .map_err(|e| format!("couldn't write the update helper: {e}"))?;
     use std::os::windows::process::CommandExt;
     std::process::Command::new("cmd")
         .arg("/C")
@@ -300,7 +322,7 @@ fn install(tmp: &Path, asset: &str) -> Result<(), String> {
         .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
         .spawn()
         .map_err(|e| format!("couldn't start the update helper: {e}"))?;
-    println!("The update finishes after Marko closes.");
+    println!("The update finishes in a moment; close Marko first if it is open.");
     Ok(())
 }
 

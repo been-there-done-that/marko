@@ -280,7 +280,50 @@ static SCENES: &[Scene] = &[
     ("theme-nordic", |s: &mut AppState| { scene_basic(s); s.settings.theme = "nordic".into(); }),
 ];
 
+/// A release build on Windows is a GUI program, so it starts with no console. When `args` ask
+/// for a command, attach to the terminal that started us and point stdout/stderr at it, so
+/// `marko --version` and `marko update` print instead of running silently.
+#[cfg(all(windows, not(debug_assertions)))]
+fn attach_console_for_cli(args: &[String]) {
+    use std::ptr;
+    use windows_sys::Win32::Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    };
+    use windows_sys::Win32::System::Console::{
+        AttachConsole, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+
+    if cli::command(args).is_none() {
+        return;
+    }
+    // SAFETY: the calls only attach this process to its parent's console and replace the
+    // process's std handles; no Rust memory is involved.
+    unsafe {
+        if AttachConsole(ATTACH_PARENT_PROCESS) == 0 {
+            return;
+        }
+        let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+        let handle = CreateFileW(
+            conout.as_ptr(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            ptr::null(),
+            OPEN_EXISTING,
+            0,
+            ptr::null_mut(),
+        );
+        if handle == INVALID_HANDLE_VALUE || handle.is_null() {
+            return;
+        }
+        SetStdHandle(STD_OUTPUT_HANDLE, handle);
+        SetStdHandle(STD_ERROR_HANDLE, handle);
+    }
+}
+
 fn main() -> std::process::ExitCode {
+    #[cfg(all(windows, not(debug_assertions)))]
+    attach_console_for_cli(&std::env::args().skip(1).collect::<Vec<_>>());
     // Version, help and update run in this terminal. They must come before `detach`, which
     // otherwise hands the prompt back with no output.
     if let Some(code) = cli::run() {
