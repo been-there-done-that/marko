@@ -117,6 +117,7 @@ pub fn restore(s: &mut AppState, items: Vec<Recovered>) {
         tab.conflict = false;
         tab.changed = false;
         tab.rev = tab.rev.wrapping_add(1);
+        tab.preview_rev = tab.rev;
     }
 }
 

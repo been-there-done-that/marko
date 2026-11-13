@@ -264,8 +264,11 @@ mod flow {
         let end = buf.text.text.len();
         buf.text.set_caret(end);
         buf.text.insert("\n![n](new.png)\n![w](https://h.example/w.png)\n");
-        // The input callback bumps the revision on every edit; do the same here.
-        s.tabs.active_mut().unwrap().rev += 1;
+        // The input callback bumps the revision on every edit; do the same here, then let the
+        // preview settle so the image scan sees it.
+        let tab = s.tabs.active_mut().unwrap();
+        tab.rev += 1;
+        tab.preview_rev = tab.rev;
         s.sync_edit_images();
         assert!(s.jobs.contains(&Job::Image { key: pic.clone() }));
         assert_eq!(web_jobs(&s), 0, "Ask still holds in the editor");

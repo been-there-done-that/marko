@@ -30,10 +30,11 @@ fn worker_runs_load_and_posts_result() {
 fn run_job_scans_folder() {
     let dir = fixture("");
     match run_job(Job::Scan { root: dir.clone() }) {
-        JobResult::Scanned { root, files: Ok(files) } => {
+        JobResult::Scanned { root, tree, .. } => {
             assert_eq!(root, dir);
-            assert!(files.iter().any(|f| f.ends_with("basic.md")));
-            assert!(files.iter().any(|f| f.ends_with("hello.md")));
+            let tree = (*tree).expect("a successful scan");
+            assert!(tree.get("basic.md").is_some());
+            assert!(tree.get("hello.md").is_some());
         }
         _ => panic!("expected a successful scan"),
     }

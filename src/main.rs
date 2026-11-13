@@ -435,6 +435,7 @@ fn start(handle: AppHandle<AppState>) {
 fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     s.now = now;
     s.sync_preview_scroll(tx);
+    let preview_changed = s.catch_up_preview(now, tx);
     s.sync_edit_images();
     ui::tab_strip::reveal_active(s, tx);
     let stats_changed = stats::tick(s, now, tx);
@@ -486,7 +487,7 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
             }
         }
     }
-    cleared || stats_changed || progress_changed || bg_changed
+    cleared || stats_changed || progress_changed || bg_changed || preview_changed
 }
 
 /// Writes the session one last time as the app quits, with the window's frame, so a change

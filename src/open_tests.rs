@@ -14,6 +14,17 @@ fn loads(s: &AppState) -> usize {
     s.jobs.iter().filter(|j| matches!(j, Job::Load { .. })).count()
 }
 
+/// Runs a scan the way the worker does: it builds the tree and picks the file to open.
+fn scanned(s: &mut AppState, root: &Path) {
+    match scan(root) {
+        Ok(files) => {
+            let open = crate::sidebar::readme_or_first(&files);
+            s.scanned(root, Ok(crate::sidebar::build_tree(&files, root)), open);
+        }
+        Err(e) => s.scanned(root, Err(e), None),
+    }
+}
+
 #[test]
 fn mixed_drop_routes_each_kind() {
     let dir = tempfile::tempdir().unwrap();
@@ -63,7 +74,7 @@ fn scan_result_opens_readme_when_no_tabs() {
     let mut s = AppState::new();
     s.open_paths(&[dir.path().to_path_buf()], 0.0);
     let root = s.sidebar.roots[0].path.clone();
-    s.scanned(&root, scan(&root));
+    scanned(&mut s, &root);
     assert_eq!(s.tabs.active().unwrap().path, root.join("README.md"));
     assert!(!s.sidebar.roots[0].scanning);
 }
@@ -79,7 +90,7 @@ fn scan_result_does_not_open_when_tabs_exist() {
     s.open_paths(std::slice::from_ref(&a), 0.0);
     s.open_paths(std::slice::from_ref(&folder), 0.0);
     let root = s.sidebar.roots[0].path.clone();
-    s.scanned(&root, scan(&root));
+    scanned(&mut s, &root);
     assert_eq!(s.tabs.iter().count(), 1);
     assert_eq!(s.tabs.active().unwrap().path, canonical(&a));
 }
@@ -90,7 +101,7 @@ fn scan_error_sets_root_error() {
     let mut s = AppState::new();
     s.open_paths(&[dir.path().to_path_buf()], 0.0);
     let root = s.sidebar.roots[0].path.clone();
-    s.scanned(&root, Err("denied".to_string()));
+    s.scanned(&root, Err("denied".to_string()), None);
     assert_eq!(s.sidebar.roots[0].error.as_deref(), Some("denied"));
     assert!(!s.sidebar.roots[0].scanning);
 }

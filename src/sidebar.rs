@@ -102,7 +102,14 @@ fn scan_with_cap(dir: &Path, cap: usize) -> Result<Vec<PathBuf>, String> {
 }
 
 /// A file tree over `files` (relative to `base`), folders first.
-pub fn build_tree(root_key: &str, files: &[PathBuf], base: &Path) -> TreeModel<FileNode<PathBuf>> {
+/// A stable element key for a root, independent of its sidebar position, so the tree can be
+/// built on the worker.
+pub fn root_key(base: &Path) -> String {
+    format!("root-{:016x}", crate::watch::content_hash(&base.to_string_lossy()))
+}
+
+pub fn build_tree(files: &[PathBuf], base: &Path) -> TreeModel<FileNode<PathBuf>> {
+    let root_key = root_key(base);
     let items: Vec<(String, PathBuf)> = files
         .iter()
         .map(|rel| {
@@ -110,7 +117,7 @@ pub fn build_tree(root_key: &str, files: &[PathBuf], base: &Path) -> TreeModel<F
             (key, base.join(rel))
         })
         .collect();
-    FileTree::new().key(root_key).dirs_first(true).build(items)
+    FileTree::new().key(&root_key).dirs_first(true).build(items)
 }
 
 /// The top-level `README.md` (any case) if there is one, else the first file.

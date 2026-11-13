@@ -32,8 +32,10 @@ fn buffer(tab: &mut Tab) -> &mut EditBuffer {
 /// Edits from the source text area land in the active tab's buffer. The area is only in the
 /// tree while the active tab is Ready, so there is always a tab to write to.
 fn edit_text(s: &mut AppState) -> &mut TextEdit {
+    let now = s.now;
     let tab = s.tabs.active_mut().expect("the editor is only shown for an active tab");
     tab.rev = tab.rev.wrapping_add(1);
+    tab.last_edit = now;
     let buf = buffer(tab);
     buf.mark_edited();
     &mut buf.text
@@ -65,6 +67,7 @@ pub fn enter(s: &mut AppState) -> bool {
     }
     // Focus the source so the first key typed lands in it (the notes on `TextEdit::focused`).
     buffer(tab).text.focused = true;
+    tab.preview_rev = tab.rev;
     s.mode = Mode::Edit;
     true
 }
@@ -150,7 +153,7 @@ pub fn view(s: &AppState, k: &Kit, look: &'static Look) -> El {
         s,
         k,
         look,
-        document::MarkdownDoc { key: &key, rev: tab.rev, src: &edit.text, path: &tab.path, highlights: Vec::new() },
+        document::MarkdownDoc { key: &key, rev: tab.preview_rev, src: &edit.text, path: &tab.path, highlights: Vec::new() },
     );
     let preview_at = s.preview_at.clone();
     let preview = document::reading("preview", s, md).on_scroll_offset(move |p: ScrollPos| {

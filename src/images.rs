@@ -20,8 +20,9 @@ pub const CACHE_ENTRIES: usize = 32;
 pub const CACHE_BYTES: usize = 48 * 1024 * 1024;
 /// Wider pictures are scaled down on decode, to twice the reading column (1920 px).
 pub const MAX_DECODE_WIDTH: u32 = 2 * READ_W_WIDE as u32;
-/// Largest allocation the decoder may make for one picture.
-const MAX_DECODE_ALLOC: u64 = 256 * 1024 * 1024;
+/// Largest allocation the decoder may make for one picture. Bounded so a huge photo cannot
+/// briefly push the process far past its memory budget; 128 MB is about a 32-megapixel image.
+const MAX_DECODE_ALLOC: u64 = 128 * 1024 * 1024;
 /// Largest SVG file read (a vector drawing has no business being larger).
 const MAX_SVG_BYTES: u64 = 20 * 1024 * 1024;
 /// Side, in points, an SVG with no readable size is drawn at.

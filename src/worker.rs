@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 
 use rune::AppHandle;
+use rune_kit::{FileNode, TreeModel};
 
 use crate::app::{AppState, Job};
 use crate::edit::save_atomic;
@@ -18,7 +19,7 @@ const BACKGROUND_DECODE_WIDTH: u32 = 3840;
 pub enum JobResult {
     /// `images` are the document's local images, resolved to absolute paths; `web` its web image addresses.
     Loaded { tab: u64, doc: DocState, images: Vec<PathBuf>, web: Vec<String> },
-    Scanned { root: PathBuf, files: Result<Vec<PathBuf>, String> },
+    Scanned { root: PathBuf, tree: Box<Result<TreeModel<FileNode<PathBuf>>, String>>, open: Option<PathBuf> },
     /// A save finished. `text` is what the write was given.
     Saved { tab: u64, text: String, result: Result<(), String> },
     /// `image` is `None` when the file could not be decoded.
@@ -54,10 +55,14 @@ pub fn run_job(job: Job) -> JobResult {
             let image = crate::net::fetch(&url).ok().and_then(|bytes| images::decode_bytes(&bytes, images::MAX_DECODE_WIDTH));
             JobResult::Image { key: images::web_key(&url), image }
         }
-        Job::Scan { root } => {
-            let files = sidebar::scan(&root);
-            JobResult::Scanned { root, files }
-        }
+        Job::Scan { root } => match sidebar::scan(&root) {
+            Ok(files) => {
+                let open = sidebar::readme_or_first(&files);
+                let tree = sidebar::build_tree(&files, &root);
+                JobResult::Scanned { root, tree: Box::new(Ok(tree)), open }
+            }
+            Err(e) => JobResult::Scanned { root, tree: Box::new(Err(e)), open: None },
+        },
         Job::Save { tab, path, text } => {
             let result = save_atomic(&path, &text);
             JobResult::Saved { tab, text, result }
@@ -74,7 +79,7 @@ impl JobResult {
                 s.want_images(images);
                 s.doc_web_images(tab, web);
             }
-            JobResult::Scanned { root, files } => s.scanned(&root, files),
+            JobResult::Scanned { root, tree, open } => s.scanned(&root, *tree, open),
             JobResult::Saved { tab, text, result } => s.saved(tab, text, result),
             JobResult::Image { key, image } => s.image_ready(key, image),
             JobResult::Background { path, image } => s.background_ready(&path, image),

@@ -3,8 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use rune::{Live, PointerPress, Tx};
+use rune_kit::{FileNode, TreeModel};
 
 use crate::edit::{self, EditBuffer};
 use crate::find::Find;
@@ -12,7 +14,7 @@ use crate::images::ImageCache;
 use crate::load::{DocState, LoadError, LARGE_BYTES};
 use crate::paths::canonical;
 use crate::progress::Progress;
-use crate::sidebar::{build_tree, readme_or_first, Sidebar};
+use crate::sidebar::Sidebar;
 use crate::tabs::TabSet;
 use crate::watch::{content_hash, FileEvent};
 
@@ -21,6 +23,8 @@ const RECENT_CAP: usize = 16;
 /// Most pictures queued or failed at once, so a document naming thousands of images cannot
 /// fill the job queue.
 const MAX_PENDING_IMAGES: usize = 256;
+/// How long typing must pause before the editor preview re-renders the document.
+const PREVIEW_QUIET: f64 = 0.12;
 /// How long a toast stays on screen, in seconds.
 const TOAST_SECS: f64 = 2.4;
 /// Zoom step and limits. Zoom multiplies the reading sizes (§4.7).
@@ -283,6 +287,7 @@ impl AppState {
                 let large = text.len() as u64 > LARGE_BYTES;
                 t.doc = DocState::Ready { src: Arc::from(text.as_str()), large, lossy: false };
                 t.rev = t.rev.wrapping_add(1);
+                t.preview_rev = t.rev;
                 format!("Saved {name}")
             }
             Err(e) => format!("Couldn't save {name}: {e}"),
@@ -322,6 +327,7 @@ impl AppState {
             t.hash = None;
             t.deleted = false;
             t.rev = t.rev.wrapping_add(1);
+            t.preview_rev = t.rev;
             return;
         };
         let same = was_ready && t.hash == Some(hash);
@@ -343,6 +349,7 @@ impl AppState {
         t.hash = Some(hash);
         t.deleted = false;
         t.rev = t.rev.wrapping_add(1);
+        t.preview_rev = t.rev;
         if was_ready && !same {
             let name = file_name(&t.path);
             if active {
@@ -385,6 +392,22 @@ impl AppState {
         if !self.jobs.contains(&job) {
             self.jobs.push(job);
         }
+    }
+
+    /// Lets the editor preview catch up with a burst of typing once it has been quiet long
+    /// enough, so a fast typist does not re-parse the document on every keystroke.
+    pub fn catch_up_preview(&mut self, now: f64, tx: &mut Tx) -> bool {
+        let Some(tab) = self.tabs.active_mut() else { return false };
+        if tab.preview_rev == tab.rev {
+            return false;
+        }
+        let wait = PREVIEW_QUIET - (now - tab.last_edit);
+        if wait > 0.0 {
+            tx.wake_after(Duration::from_secs_f64(wait));
+            return false;
+        }
+        tab.preview_rev = tab.rev;
+        true
     }
 
     /// Queues a decode for each local image not yet cached or pending. Paths are already resolved
@@ -468,7 +491,7 @@ impl AppState {
         }
         let Some(tab) = self.tabs.active() else { return };
         let Some(buf) = tab.edit.as_ref() else { return };
-        let seen = (tab.id, tab.rev);
+        let seen = (tab.id, tab.preview_rev);
         if self.edit_images_seen == Some(seen) {
             return;
         }
@@ -548,28 +571,28 @@ impl AppState {
 
     /// A worker finished scanning a root. Builds its tree; opens the README (or the first
     /// file) when no tab is open yet. An error is shown in the sidebar.
-    pub fn scanned(&mut self, root: &Path, files: Result<Vec<PathBuf>, String>) {
+    pub fn scanned(&mut self, root: &Path, tree: Result<TreeModel<FileNode<PathBuf>>, String>, open: Option<PathBuf>) {
         let key = canonical(root);
         let Some(i) = self.sidebar.roots.iter().position(|r| r.path == key) else {
             return;
         };
-        match files {
-            Ok(files) => {
+        let open = match tree {
+            Ok(tree) => {
                 let r = &mut self.sidebar.roots[i];
                 r.scanning = false;
                 r.error = None;
-                r.tree = build_tree(&format!("root-{i}"), &files, &key);
-                if self.tabs.is_empty()
-                    && let Some(rel) = readme_or_first(&files)
-                {
-                    self.open_file(&key.join(rel));
-                }
+                r.tree = tree;
+                open
             }
             Err(e) => {
                 let r = &mut self.sidebar.roots[i];
                 r.scanning = false;
                 r.error = Some(e);
+                None
             }
+        };
+        if self.tabs.is_empty() && let Some(rel) = open {
+            self.open_file(&key.join(rel));
         }
     }
 
