@@ -60,16 +60,23 @@ fn apply_samples_once_per_second_and_reports_only_changes() {
 #[test]
 fn stats_hidden_when_toggled_off() {
     let mut s = AppState::new();
+    s.stats_on = true;
     apply(&mut s, 0.0, usage(112_000_000, 1.0));
     let mut rt = runtime(s);
     rt.frame(1.0 / 60.0);
-    assert!(rt.find("stats").is_some(), "the readout shows by default");
+    assert!(rt.find("stats").is_some(), "the readout shows once turned on");
     press(&mut rt, "tb-more");
     press(&mut rt, "menu-stats");
     assert!(!rt.state.stats_on);
     assert_eq!(rt.state.menu, None);
     rt.frame(1.0 / 60.0);
     assert!(rt.find("stats").is_none());
+}
+
+#[test]
+fn stats_off_by_default_so_idle_never_wakes() {
+    let s = AppState::new();
+    assert!(!s.stats_on, "the readout's once-a-second wake-up must be opt-in");
 }
 
 #[test]

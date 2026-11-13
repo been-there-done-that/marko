@@ -59,6 +59,9 @@ const WINDOW_CLASS: &str = "marko";
 const SAVE_WAKE: Duration = Duration::from_millis(1100);
 /// How often a dirty buffer is snapshotted for crash recovery.
 const RECOVERY_EVERY: f64 = 5.0;
+/// How often `poll` captures the session to see whether it changed. Capturing and serializing it
+/// every frame is wasted work; a change is still seen within this, then debounced as before.
+const SESSION_CHECK_EVERY: f64 = 0.5;
 
 /// The worker's job queue. Set once the window is ready.
 static JOBS: OnceLock<Sender<Job>> = OnceLock::new();
@@ -83,11 +86,15 @@ struct Persist {
     primary: Option<InstanceLock>,
     /// The session as last seen by `poll`, as JSON, to tell when anything changed.
     last: String,
+    /// When `poll` last captured the session to compare with `last`.
+    checked_at: f64,
     debounce: SaveDebounce,
     /// Sends due snapshots to the saver thread, the only thread that writes the prefs.
     saves: Sender<Session>,
     /// When the last crash-recovery snapshot was taken.
     recovery_at: f64,
+    /// What the last periodic recovery snapshot held, so an unchanged one is not sent again.
+    recovery_last: Option<recovery::Fingerprint>,
 }
 
 /// Work for the recovery writer thread.
@@ -435,7 +442,7 @@ fn start(handle: AppHandle<AppState>) {
             }
         })
         .expect("the OS refused to start the session saver thread");
-    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), debounce: SaveDebounce::default(), saves, recovery_at: 0.0 }));
+    let _ = PERSIST.set(Mutex::new(Persist { frame: saved.frame, primary, last: String::new(), checked_at: f64::NEG_INFINITY, debounce: SaveDebounce::default(), saves, recovery_at: 0.0, recovery_last: None }));
     if is_primary && let Some(dir) = config_dir {
         let (rec_tx, rec_rx) = mpsc::channel::<RecoveryMsg>();
         let _ = thread::Builder::new().name("recovery-save".into()).spawn(move || {
@@ -514,15 +521,27 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
     if let Some(persist) = PERSIST.get() {
         let mut p = persist.lock().unwrap_or_else(|e| e.into_inner());
         if p.primary.is_some() {
-            let mut snapshot = session::capture(s);
-            let json = serde_json::to_string(&snapshot).unwrap_or_default();
-            if json != p.last {
-                p.last = json;
-                p.debounce.touch(now);
-                // Without a frame scheduled, no poll would come to save a change.
-                tx.wake_after(SAVE_WAKE);
+            let mut captured = None;
+            let wait = SESSION_CHECK_EVERY - (now - p.checked_at);
+            if wait > 0.0 {
+                // Checked too recently. Wake when the next check may run, so a change made in
+                // this frame is still seen if no other frame comes. Only skipped polls ask, so
+                // an idle window settles after one check.
+                tx.wake_after(Duration::from_secs_f64(wait));
+            } else {
+                p.checked_at = now;
+                let snapshot = session::capture(s);
+                let json = serde_json::to_string(&snapshot).unwrap_or_default();
+                if json != p.last {
+                    p.last = json;
+                    p.debounce.touch(now);
+                    // Without a frame scheduled, no poll would come to save a change.
+                    tx.wake_after(SAVE_WAKE);
+                }
+                captured = Some(snapshot);
             }
             if p.debounce.due(now) {
+                let mut snapshot = captured.unwrap_or_else(|| session::capture(s));
                 // The window is asked only now, when a save is about to go out.
                 let placed = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.placement()));
                 if let Some(frame) = placed.as_ref().and_then(session::frame_of) {
@@ -533,8 +552,10 @@ fn poll(s: &mut AppState, now: f64, tx: &mut Tx) -> bool {
             }
             if now - p.recovery_at >= RECOVERY_EVERY {
                 p.recovery_at = now;
-                if let Some(tx) = RECOVERY_TX.get() {
-                    let _ = tx.send(RecoveryMsg::Snapshot(recovery::snapshot(s)));
+                if let Some(tx) = RECOVERY_TX.get()
+                    && let Some(items) = recovery::snapshot_if_changed(s, &mut p.recovery_last)
+                {
+                    let _ = tx.send(RecoveryMsg::Snapshot(items));
                 }
             }
         }

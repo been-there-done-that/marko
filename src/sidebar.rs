@@ -13,6 +13,13 @@ pub const SCAN_CAP: usize = 20_000;
 /// Folders the scan never enters, besides hidden and git-ignored ones.
 const SKIP_DIRS: [&str; 3] = ["node_modules", "target", ".venv"];
 
+/// True for a path component the scan never enters: a hidden name (the walker runs with
+/// `.hidden(true)`) or one of `SKIP_DIRS`. The watcher uses it to skip rescans for changes
+/// the scan could never show.
+pub(crate) fn scan_skips(name: &str) -> bool {
+    name.starts_with('.') || SKIP_DIRS.contains(&name)
+}
+
 /// A folder the sidebar shows.
 pub struct Root {
     pub path: PathBuf,

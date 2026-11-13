@@ -190,3 +190,28 @@ fn atomic_save_temps_are_recognised() {
     assert!(!is_atomic_temp(Path::new("/root/a.md")));
     assert!(!is_atomic_temp(Path::new("/root/.hidden.md")));
 }
+
+fn create_event(path: &Path) -> Event {
+    Event::new(EventKind::Create(notify::event::CreateKind::File)).add_path(path.to_path_buf())
+}
+
+#[test]
+fn changes_in_skipped_folders_do_not_rescan_the_root() {
+    let root = PathBuf::from("/proj");
+    let interest = Interest { files: Vec::new(), roots: vec![root.clone()] };
+    assert!(keys_for(&create_event(Path::new("/proj/target/debug/build/x.o")), &interest).is_empty());
+    assert!(keys_for(&create_event(Path::new("/proj/web/node_modules/a/README.md")), &interest).is_empty());
+    assert!(keys_for(&create_event(Path::new("/proj/.git/objects/ab/cd")), &interest).is_empty());
+    assert_eq!(keys_for(&create_event(Path::new("/proj/docs/new.md")), &interest), vec![root]);
+    // Only components below the root count: a root that is itself hidden still rescans.
+    let hidden = PathBuf::from("/home/u/.notes");
+    let interest = Interest { files: Vec::new(), roots: vec![hidden.clone()] };
+    assert_eq!(keys_for(&create_event(Path::new("/home/u/.notes/a.md")), &interest), vec![hidden]);
+}
+
+#[test]
+fn open_file_in_skipped_folder_still_gets_its_event() {
+    let file = PathBuf::from("/proj/target/doc/notes.md");
+    let interest = Interest { files: vec![file.clone()], roots: vec![PathBuf::from("/proj")] };
+    assert_eq!(keys_for(&create_event(&file), &interest), vec![file]);
+}

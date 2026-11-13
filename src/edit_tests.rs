@@ -16,6 +16,22 @@ fn dirty_after_edit_clean_after_save() {
 }
 
 #[test]
+fn unsaved_hash_follows_dirty() {
+    let mut buf = EditBuffer::from_src("a");
+    assert_eq!(buf.unsaved_hash(), None, "a fresh buffer is clean");
+    buf.text.replace_text("ab");
+    buf.mark_edited();
+    assert_eq!(buf.unsaved_hash(), Some(content_hash("ab")));
+    // Typed back to the saved text: edited, but clean.
+    buf.text.replace_text("a");
+    assert_eq!(buf.unsaved_hash(), None);
+    buf.text.replace_text("abc");
+    buf.mark_saved("abc");
+    assert_eq!(buf.unsaved_hash(), None, "saved");
+    assert_eq!(EditBuffer::recovered("x", "y").unsaved_hash(), Some(content_hash("x")));
+}
+
+#[test]
 fn save_atomic_replaces_contents() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("a.md");
