@@ -138,7 +138,7 @@ pub fn restore(s: &mut AppState, items: Vec<Recovered>) {
         };
         let Some(tab) = s.tabs.get_mut(id) else { continue };
         let large = item.text.len() as u64 > LARGE_BYTES;
-        tab.doc = DocState::Ready { src: Arc::from(item.text.as_str()), large, lossy: false };
+        tab.doc = DocState::Ready { src: Arc::new(item.text.clone()), large, lossy: false };
         tab.hash = Some(content_hash(&disk));
         tab.edit = Some(EditBuffer::recovered(&item.text, &disk));
         tab.untitled = item.path.is_none();

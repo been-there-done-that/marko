@@ -2696,7 +2696,7 @@ dependencies = [
 [[package]]
 name = "procwatch"
 version = "0.1.0"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "libc",
 ]
@@ -2923,7 +2923,7 @@ dependencies = [
 [[package]]
 name = "rune"
 version = "0.0.1"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3004,7 +3004,7 @@ dependencies = [
 [[package]]
 name = "rune-highlights"
 version = "0.0.1"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "unicode-ident",
  "wasmparser",
@@ -3013,7 +3013,7 @@ dependencies = [
 [[package]]
 name = "rune-kit"
 version = "0.0.1"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "pulldown-cmark",
  "rune",
@@ -3026,7 +3026,7 @@ dependencies = [
 [[package]]
 name = "rune-mermaid"
 version = "0.0.1"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "rune",
 ]
@@ -3034,12 +3034,12 @@ dependencies = [
 [[package]]
 name = "rune-motion"
 version = "0.1.0"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 
 [[package]]
 name = "rune-staging"
 version = "0.0.1"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "wgpu",
 ]
@@ -3047,7 +3047,7 @@ dependencies = [
 [[package]]
 name = "rune-taffy"
 version = "0.0.1"
-source = "git+https://github.com/been-there-done-that/rune?rev=892236b7d4e1d75185f806f0d308cfae9249fb62#892236b7d4e1d75185f806f0d308cfae9249fb62"
+source = "git+https://github.com/been-there-done-that/rune?rev=71e1b792bc02c0491853a76af03bef29236e0663#71e1b792bc02c0491853a76af03bef29236e0663"
 dependencies = [
  "taffy",
 ]

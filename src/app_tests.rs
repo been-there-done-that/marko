@@ -7,7 +7,7 @@ use crate::load::DocState;
 fn ready_tab(s: &mut AppState, path: &Path, text: &str) -> u64 {
     let (id, _) = s.tabs.open(path);
     let tab = s.tabs.get_mut(id).unwrap();
-    tab.doc = DocState::Ready { src: Arc::from(text), large: false, lossy: false };
+    tab.doc = DocState::Ready { src: Arc::new(text.into()), large: false, lossy: false };
     tab.edit = Some(EditBuffer::from_src(text));
     id
 }
@@ -45,7 +45,7 @@ fn lossy_documents_are_not_saved() {
     std::fs::write(&path, "old").unwrap();
     let mut s = AppState::new();
     let id = ready_tab(&mut s, &path, "old");
-    s.tabs.get_mut(id).unwrap().doc = DocState::Ready { src: Arc::from("old"), large: false, lossy: true };
+    s.tabs.get_mut(id).unwrap().doc = DocState::Ready { src: Arc::new("old".into()), large: false, lossy: true };
 
     s.queue_save(id, path, false, false);
     assert!(s.jobs.is_empty(), "a lossy document must not be queued for writing");
@@ -60,7 +60,7 @@ fn lossy_documents_can_be_saved_as_a_copy() {
     std::fs::write(&path, "old").unwrap();
     let mut s = AppState::new();
     let id = ready_tab(&mut s, &path, "old");
-    s.tabs.get_mut(id).unwrap().doc = DocState::Ready { src: Arc::from("old"), large: false, lossy: true };
+    s.tabs.get_mut(id).unwrap().doc = DocState::Ready { src: Arc::new("old".into()), large: false, lossy: true };
 
     s.queue_save(id, dir.path().join("copy.md"), false, true);
     assert!(s.jobs.iter().any(|j| matches!(j, Job::Save { .. })), "Save As is allowed");

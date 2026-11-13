@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 pub enum DocState {
     Loading,
-    Ready { src: Arc<str>, large: bool, lossy: bool },
+    Ready { src: Arc<String>, large: bool, lossy: bool },
     Error(LoadError),
 }
 
@@ -35,13 +35,13 @@ pub fn load(path: &Path) -> DocState {
     if bytes[..bytes.len().min(BINARY_PROBE)].contains(&0) {
         return DocState::Error(LoadError::Binary);
     }
-    // Take ownership of the bytes so a valid file is never held twice; only invalid UTF-8 pays
-    // for the lossy copy, and the original bytes are dropped before the Arc copy is made.
+    // The bytes become the String, and the String moves into the Arc, so a valid file is held
+    // once. Only invalid UTF-8 pays for the lossy copy.
     let (text, lossy) = match String::from_utf8(bytes) {
         Ok(s) => (s, false),
         Err(e) => (String::from_utf8_lossy(e.as_bytes()).into_owned(), true),
     };
-    DocState::Ready { src: Arc::<str>::from(text), large: len > LARGE_BYTES, lossy }
+    DocState::Ready { src: Arc::new(text), large: len > LARGE_BYTES, lossy }
 }
 
 fn map_io(e: std::io::Error) -> LoadError {

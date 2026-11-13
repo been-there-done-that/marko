@@ -300,7 +300,7 @@ impl AppState {
                     buf.mark_saved(&text);
                 }
                 let large = text.len() as u64 > LARGE_BYTES;
-                t.doc = DocState::Ready { src: Arc::from(text.as_str()), large, lossy: false };
+                t.doc = DocState::Ready { src: Arc::new(text), large, lossy: false };
                 t.rev = t.rev.wrapping_add(1);
                 t.preview_rev = t.rev;
                 format!("Saved {name}")
